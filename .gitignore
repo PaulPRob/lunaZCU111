@@ -42,6 +42,8 @@ sw/client/data/
 
 # ---- vendor reference documents (download from AMD; see refernces/README) -
 refernces/*.pdf
+# CSIRO System Generator PFB/FFT cores - kept local, not for the public repo
+refernces/PFB/
 
 # ---- misc ------------------------------------------------------------------
 # Windows endpoint-DLP alternate data streams copied into WSL
