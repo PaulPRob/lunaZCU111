@@ -35,6 +35,13 @@
   <text x="30" y="42" class="title">lunaZCU111 — 8-channel 3.93 GS/s transient trigger &amp; capture system</text>
   <text x="30" y="66" class="sub">Xilinx ZCU111 (XCZU28DR RFSoC) · every sample of 8 RF inputs tested in real time · triggered 8-channel snapshots streamed over Ethernet</text>
 
+  <!-- ===================== status badge ===================== -->
+  <rect x="1440" y="18" width="340" height="56" rx="10" fill="#e3f2e4" stroke="#2e7d32" stroke-width="2"/>
+  <circle cx="1471" cy="46" r="15" fill="#2e7d32"/>
+  <path d="M1463,46 L1469,52 L1480,40" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1497" y="41" class="bt" fill="#1b5e20">Verified on hardware</text>
+  <text x="1497" y="61" class="tx">October 2026 · capturing event data</text>
+
   <!-- ===================== RF inputs ===================== -->
   <rect x="20" y="205" width="105" height="120" rx="8" class="ext"/>
   <text x="72" y="240" class="bt" text-anchor="middle">8 × RF</text>
