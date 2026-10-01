@@ -1,7 +1,7 @@
 [project]
 name = "lunaclient"
 version = "0.1.0"
-description = "Client for the ZCU111 8-channel transient capture server (lunaserver)"
+description = "Client for the ZCU111 8-channel transient capture and spectrometer server (lunaserver)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.21"]
@@ -11,6 +11,7 @@ plot = ["matplotlib>=3.5"]
 
 [project.scripts]
 luna-client = "lunaclient.cli:run"
+luna-spec = "lunaclient.spec_cli:run"
 
 [build-system]
 requires = ["hatchling"]

@@ -8,11 +8,14 @@
 #       -> trigger_capture regs     0xA010_0000  (clk_1x 245.76 MHz)
 #       -> AXI DMA (S2MM) regs      0xA011_0000  (pl_clk0)
 #       -> AXI GPIO (MMCM ctrl)     0xA012_0000  (pl_clk0)
+#       -> spectrometer regs + mem  0xA014_0000  (clk_spec 122.88 MHz, 128 KiB)
 #   RFDC 8 x ADC 3932.16 MSPS (4 dual tiles, PLL from 245.76 MHz, MTS)
 #       m00/m02/m10/m12/m20/m22/m30/m32 (491.52 MHz) -> trigger_capture s00..s07
 #   DAC tile 228 channel 0 enabled only so the Gen1 SYSREF master is powered
 #   trigger_capture m_axis -> AXI DMA S2MM -> S_AXI_HP0 -> DDR
-#   FPGA_REFCLK_OUT 122.88 MHz -> MMCM -> clk_2x 491.52 / clk_1x 245.76 MHz
+#   FPGA_REFCLK_OUT 122.88 MHz -> MMCM -> clk_2x 491.52 / clk_1x 245.76 /
+#                                          clk_spec 122.88 MHz
+#   trigger_capture spec_word (ADC 0) -> spectrometer (PFB 16 ch -> DFB 4096 ch)
 #   PL SYSREF 7.68 MHz -> pl_sysref_sync -> RFDC user_sysref_adc
 # -----------------------------------------------------------------------------
 
@@ -46,6 +49,9 @@ set_property -dict [list \
     CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 245.760 \
     CONFIG.CLK_OUT1_PORT clk_2x \
     CONFIG.CLK_OUT2_PORT clk_1x \
+    CONFIG.CLKOUT3_USED true \
+    CONFIG.CLKOUT3_REQUESTED_OUT_FREQ 122.880 \
+    CONFIG.CLK_OUT3_PORT clk_spec \
     CONFIG.USE_RESET true \
     CONFIG.RESET_TYPE ACTIVE_HIGH \
     CONFIG.USE_LOCKED true \
@@ -53,6 +59,7 @@ set_property -dict [list \
     CONFIG.MMCM_DIVCLK_DIVIDE 1 \
     CONFIG.MMCM_CLKOUT0_DIVIDE_F 2.000 \
     CONFIG.MMCM_CLKOUT1_DIVIDE 4 \
+    CONFIG.MMCM_CLKOUT2_DIVIDE 8 \
 ] $cw
 create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 fpga_refclk
 set_property CONFIG.FREQ_HZ 122880000 [get_bd_intf_ports fpga_refclk]
@@ -73,14 +80,17 @@ connect_bd_net [get_bd_pins $cw/locked] [get_bd_pins $gpio/gpio2_io_i]
 set rst100 [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst_100]
 set rst1x  [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst_1x]
 set rst2x  [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst_2x]
+set rstsp  [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst_spec]
 connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $rst100/slowest_sync_clk]
 connect_bd_net [get_bd_pins $ps/pl_resetn0] \
     [get_bd_pins $rst100/ext_reset_in] [get_bd_pins $rst1x/ext_reset_in] \
-    [get_bd_pins $rst2x/ext_reset_in]
+    [get_bd_pins $rst2x/ext_reset_in] [get_bd_pins $rstsp/ext_reset_in]
 connect_bd_net [get_bd_pins $cw/clk_1x] [get_bd_pins $rst1x/slowest_sync_clk]
 connect_bd_net [get_bd_pins $cw/clk_2x] [get_bd_pins $rst2x/slowest_sync_clk]
+connect_bd_net [get_bd_pins $cw/clk_spec] [get_bd_pins $rstsp/slowest_sync_clk]
 connect_bd_net [get_bd_pins $cw/locked] \
-    [get_bd_pins $rst1x/dcm_locked] [get_bd_pins $rst2x/dcm_locked]
+    [get_bd_pins $rst1x/dcm_locked] [get_bd_pins $rst2x/dcm_locked] \
+    [get_bd_pins $rstsp/dcm_locked]
 
 # ---------------------------------------------------------------- RFDC -------
 set rf [create_bd_cell -type ip -vlnv xilinx.com:ip:usp_rf_data_converter:2.6 rfdc]
@@ -149,6 +159,16 @@ foreach m {m00 m02 m10 m12 m20 m22 m30 m32} {
     incr i
 }
 
+# ---------------------------------------------------------- spectrometer ----
+# ADC channel 0 (after the trigger core's gearbox) -> PFB/DFB integrating
+# spectrometer; the CSIRO cores are created by spec_ip.tcl (from build.tcl)
+set sp [create_bd_cell -type module -reference spectrometer_top spectrometer]
+connect_bd_net [get_bd_pins $cw/clk_1x] [get_bd_pins $sp/clk_1x]
+connect_bd_net [get_bd_pins $cw/clk_spec] [get_bd_pins $sp/clk_spec]
+connect_bd_net [get_bd_pins $rstsp/peripheral_aresetn] [get_bd_pins $sp/aresetn]
+connect_bd_net [get_bd_pins $tc/spec_word] [get_bd_pins $sp/din_1x]
+connect_bd_net [get_bd_pins $tc/spec_ts] [get_bd_pins $sp/ts_1x]
+
 # ------------------------------------------------------------------ DMA -------
 set dma [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_dma:7.1 dma]
 set_property -dict [list \
@@ -176,24 +196,27 @@ connect_bd_net [get_bd_pins $rst1x/peripheral_aresetn] [get_bd_pins $sc_hp/arese
 
 # ------------------------------------------------------- control bus ---------
 set sc [create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 sc_ctrl]
-set_property -dict [list CONFIG.NUM_SI 1 CONFIG.NUM_MI 4 CONFIG.NUM_CLKS 2] $sc
+set_property -dict [list CONFIG.NUM_SI 1 CONFIG.NUM_MI 5 CONFIG.NUM_CLKS 3] $sc
 connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM0_FPD] [get_bd_intf_pins $sc/S00_AXI]
 connect_bd_net [get_bd_pins $ps/pl_clk0] [get_bd_pins $ps/maxihpm0_fpd_aclk] \
     [get_bd_pins $sc/aclk] [get_bd_pins $gpio/s_axi_aclk]
 connect_bd_net [get_bd_pins $cw/clk_1x] [get_bd_pins $sc/aclk1]
+connect_bd_net [get_bd_pins $cw/clk_spec] [get_bd_pins $sc/aclk2]
 connect_bd_net [get_bd_pins $rst100/peripheral_aresetn] [get_bd_pins $sc/aresetn] \
     [get_bd_pins $gpio/s_axi_aresetn]
 connect_bd_intf_net [get_bd_intf_pins $sc/M00_AXI] [get_bd_intf_pins $rf/s_axi]
 connect_bd_intf_net [get_bd_intf_pins $sc/M01_AXI] [get_bd_intf_pins $tc/s_axi]
 connect_bd_intf_net [get_bd_intf_pins $sc/M02_AXI] [get_bd_intf_pins $dma/S_AXI_LITE]
 connect_bd_intf_net [get_bd_intf_pins $sc/M03_AXI] [get_bd_intf_pins $gpio/S_AXI]
+connect_bd_intf_net [get_bd_intf_pins $sc/M04_AXI] [get_bd_intf_pins $sp/s_axi]
 
 # ------------------------------------------------------------ interrupts -----
 set cc [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 irq_concat]
-set_property CONFIG.NUM_PORTS 3 $cc
+set_property CONFIG.NUM_PORTS 4 $cc
 connect_bd_net [get_bd_pins $tc/irq] [get_bd_pins $cc/In0]
 connect_bd_net [get_bd_pins $dma/s2mm_introut] [get_bd_pins $cc/In1]
 connect_bd_net [get_bd_pins $rf/irq] [get_bd_pins $cc/In2]
+connect_bd_net [get_bd_pins $sp/irq] [get_bd_pins $cc/In3]
 connect_bd_net [get_bd_pins $cc/dout] [get_bd_pins $ps/pl_ps_irq0]
 
 # --------------------------------------------------------- address map --------
@@ -202,6 +225,7 @@ assign_bd_address -offset 0xA0000000 -range 256K -target_address_space $psd [get
 assign_bd_address -offset 0xA0100000 -range 4K   -target_address_space $psd [get_bd_addr_segs trigger_capture/s_axi/reg0]
 assign_bd_address -offset 0xA0110000 -range 64K  -target_address_space $psd [get_bd_addr_segs dma/S_AXI_LITE/Reg]
 assign_bd_address -offset 0xA0120000 -range 64K  -target_address_space $psd [get_bd_addr_segs mmcm_gpio/S_AXI/Reg]
+assign_bd_address -offset 0xA0140000 -range 128K -target_address_space $psd [get_bd_addr_segs spectrometer/s_axi/reg0]
 # DMA -> DDR through HP0
 assign_bd_address
 

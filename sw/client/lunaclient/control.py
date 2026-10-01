@@ -79,6 +79,28 @@ class Control:
     def resync(self):
         return self.command("RESYNC")
 
+    # spectrometer ---------------------------------------------------------
+    def spec_status(self) -> dict:
+        return _kv(self.command("GET SPEC"))
+
+    def spec_enable(self, on: bool = True):
+        return self.command("SPEC ON" if on else "SPEC OFF")
+
+    def spec_restart(self):
+        return self.command("SPEC RESTART")
+
+    def set_spec_subband(self, subband: int):
+        """Coarse channel 0..16 (centre subband*122.88 MHz) for the fine spectrum."""
+        return self.command(f"SET SPEC_SUBBAND {int(subband)}")
+
+    def set_spec_tint(self, seconds: float):
+        """Integration time; rounded to a whole number of 33.33 us spectra."""
+        return self.command(f"SET SPEC_TINT {float(seconds):.9g}")
+
+    def set_spec_nspec(self, n: int):
+        """Integration length as a number of spectra."""
+        return self.command(f"SET SPEC_NSPEC {int(n)}")
+
     def save(self):
         return self.command("SAVE")
 

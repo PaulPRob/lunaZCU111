@@ -11,4 +11,7 @@
 size_t sim_make_event(const struct luna_config *c, void *dst, size_t max,
                       uint32_t seq, uint64_t trig_sample);
 
+/* one integration of the spectrometer: power[LUNA_SPEC_NCHAN] in FFT order */
+void sim_make_spectrum(const struct luna_config *c, uint64_t *power);
+
 #endif

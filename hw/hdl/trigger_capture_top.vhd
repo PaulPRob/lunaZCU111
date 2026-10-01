@@ -7,6 +7,8 @@
 --   m_axis        : event readout stream to the AXI DMA (clk_1x)
 --   irq           : level high while at least one captured event is waiting
 --                   (and IRQ_EN is set)
+--   spec_word     : ADC channel 0 after the gearbox (16 samples, clk_1x) and
+--   spec_ts         the sample counter, for the spectrometer
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
@@ -75,7 +77,10 @@ entity trigger_capture_top is
     m_axis_tready  : in  std_logic;
 
     sysref_1x      : in  std_logic;   -- PL SYSREF sampled in clk_1x (status only)
-    irq            : out std_logic
+    irq            : out std_logic;
+
+    spec_word      : out std_logic_vector(255 downto 0);  -- channel 0, lane 0 oldest
+    spec_ts        : out std_logic_vector(63 downto 0)    -- sample index of spec_word lane 0
   );
 
 end entity trigger_capture_top;
@@ -145,6 +150,9 @@ begin
   end process;
 
   ts_now <= cyc & "0000";
+
+  spec_word <= words(0);
+  spec_ts   <= std_logic_vector(ts_now);
 
   s00_axis_tready <= '1'; s01_axis_tready <= '1';
   s02_axis_tready <= '1'; s03_axis_tready <= '1';

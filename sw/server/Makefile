@@ -7,7 +7,7 @@
 #
 # In PetaLinux the recipe sw/petalinux/.../lunaserver builds this directly.
 
-SRCS    = main.c hw.c clocks.c rfdc_init.c pl.c config.c net.c sim.c
+SRCS    = main.c hw.c clocks.c rfdc_init.c pl.c spec.c config.c net.c sim.c
 HDRS    = $(wildcard *.h)
 CFLAGS ?= -O2 -g
 CFLAGS += -std=gnu11 -Wall -Wextra -Wno-unused-parameter

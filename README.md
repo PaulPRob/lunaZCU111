@@ -1,6 +1,12 @@
-# lunaZCU111 – 8-channel 3.93 GS/s transient trigger and capture on the ZCU111
+# lunaZCU111 – 8-channel 3.93 GS/s transient trigger and capture on the ZCU111, with an integrating spectrometer
 
 This design uses the ZCU111 (XCZU28DR RFSoC) to digitise 8 RF inputs at **3932.16 MSPS** (ADC PLLs referenced to 245.76 MHz, multi-tile synchronised). The PL checks every sample on every channel against its own programmable threshold. The trigger is either **N-of-8 coincidence** or **anti-coincidence** within a sample-exact window (default 64 samples). When it fires, **16384 samples** (programmable down to 4096) are captured on all 8 channels at the same time, with the trigger in the middle of the buffer. A server on the PS (Linux) gets an interrupt, reads each event by DMA and streams it over 1 GbE to clients. Thresholds and the rest of the configuration are set over the same link.
+
+ADC channel 0 also feeds an **integrating spectrometer**:
+- a 16-channel polyphase filter bank splits it into 17 coarse subbands of 122.88 MHz;
+- a selectable subband goes to a 4096-channel filter bank with 30 kHz channels;
+- the power is integrated, 6.000 s by default;
+- each integration is streamed on its own TCP port (5002).
 
 ![architecture](docs/block_diagram.svg)
 
@@ -20,21 +26,32 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
   - streaming to the network client, which collects event data.
 - Harmless console messages: `I/O error, dev mtdblock0` (the unused QSPI flash) and the U-Boot environment/MAC/SATA warnings.
 
+**Spectrometer (branch `spectrometer`, in development):**
+- **Done:**
+  - HDL, block design, server (`SPEC` commands, TCP 5002) and client (`luna-spec`);
+  - the server and client tested end to end in simulation mode.
+- **Not yet done:**
+  - spectrometer xsim run with the CSIRO cores (`hw/sim/run_sim.sh spec`);
+  - FPGA build and timing;
+  - testing on the board.
+
 ## Contents
 
 | Path | What |
 |------|------|
-| `hw/hdl/*.vhd` | VHDL: gearbox, detector, trigger logic, capture banks, readout, registers, SYSREF capture |
-| `hw/sim/` | xsim testbenches, Python golden model, `run_sim.sh` |
-| `hw/scripts/build_bd.tcl` | Vivado block design (PS, RFDC, MMCM, DMA, interconnect, IRQs) |
+| `hw/hdl/*.vhd` | VHDL: gearbox, detector, trigger logic, capture banks, readout, registers, SYSREF capture, spectrometer (`spectrometer_top`, `spec_regs_axil`) |
+| `hw/sim/` | xsim testbenches, Python golden models, `run_sim.sh` (`spec`: spectrometer with the CSIRO cores) |
+| `hw/scripts/build_bd.tcl` | Vivado block design (PS, RFDC, MMCM, DMA, spectrometer, interconnect, IRQs) |
+| `hw/scripts/spec_ip.tcl` | creates the CSIRO PFB/DFB IP instances from `refernces/PFB` (local only, see below) |
 | `hw/scripts/build.tcl` | unattended build → bitstream + `hw/build/lunaZCU111.xsa` |
 | `hw/scripts/export_bd_image.tcl` | exports the Vivado BD picture (GUI mode) |
 | `hw/constraints/zcu111.xdc` | PL reference clock and PL SYSREF pins |
-| `sw/server/` | `lunaserver` (C): clocks, RFDC/MTS, trigger IRQ, DMA, TCP |
-| `sw/client/` | Python client library and `luna-client` CLI stub (uv project) |
+| `sw/server/` | `lunaserver` (C): clocks, RFDC/MTS, trigger IRQ, DMA, spectrometer readout, TCP |
+| `sw/client/` | Python client library, `luna-client` (events) and `luna-spec` (spectra) CLIs (uv project) |
 | `sw/petalinux/` | PetaLinux 2023.2 layer (device tree, kernel config, recipe) + `setup.sh` |
 | `docs/` | block diagram, register map, network protocol |
 | `refernces/` | TICS Pro clock files (as supplied); the ZCU111 user guide and schematic PDFs are not in git, see `refernces/README.md` |
+| `refernces/PFB/` | **not in git (CSIRO IP, kept local):** System Generator cores `pfb32x16t_v1_6`, `dfb4096x1c_v2_0`, `rnd_23_18_v1_0`. Needed by the FPGA build and `run_sim.sh spec`. Copy the folder into a fresh clone, or set `LUNA_PFB_IP` to its path |
 
 ## Tools
 
@@ -53,6 +70,8 @@ Keep Vivado parallelism at 2–4 jobs. More jobs run out of memory on this 16 GB
 ```bash
 # 1. VHDL unit simulations (≈2 min)
 hw/sim/run_sim.sh
+#    spectrometer with the real CSIRO cores (needs refernces/PFB, much longer)
+hw/sim/run_sim.sh spec
 
 # 2. FPGA: block design, synthesis, implementation, bitstream, XSA (about 1 h)
 source ~/Xilinx/license.sh
@@ -72,6 +91,10 @@ cd sw/client && uv sync
 uv run luna-client status
 uv run luna-client set --thresh 8000 --mode coinc --n 2 --window 64 --mask 0xff --len 16384 --save
 uv run luna-client record -o data/        # saves events as .npz
+uv run luna-spec status
+uv run luna-spec set --subband 12 --tint 6 --on --save
+uv run luna-spec record -o spectra/ --skip-first   # one .npz per integration
+uv run --extra plot luna-spec plot                 # live spectrum plot
 ```
 
 To test the server and client without hardware (on any Linux PC):
@@ -79,6 +102,7 @@ To test the server and client without hardware (on any Linux PC):
 ```bash
 cd sw/server && make host && ./lunaserver-host -s 10 -c /tmp/luna.conf   # 10 synthetic events/s
 cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-client watch
+cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 ```
 
 ## Versions and development
@@ -127,6 +151,17 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-client watch
 - Readout is DMA to a 16 MiB reserved DDR region, then copied to RAM and the bank is released.
 - Network sending is asynchronous, with a per-client queue. A slow client loses frames; the capture is never blocked.
 - One 16384-sample event is 256 KiB, so 1 GbE carries about 400 events/s.
+
+**Spectrometer** (`hw/hdl/spectrometer_top.vhd`, ADC channel 0):
+- **Clock:** a third MMCM output, `clk_spec` 122.88 MHz, phase-aligned with `clk_1x`. The trigger core passes channel 0's 16-sample words (`spec_word`) and its sample counter (`spec_ts`) to the spectrometer. A 2:1 gearbox makes 32 samples per `clk_spec` cycle.
+- **Coarse filter bank:** `pfb32x16t`, 32 real samples in, 17 complex subbands out. Subband k is 122.88 MHz wide and centred on k × 122.88 MHz. Subbands 0 and 16 are real.
+- **Subband select:** a mux picks one subband (SUBBAND register, default 12 = 1474.56 MHz), and `rnd_23_18` rounds it from 23 to 18 bits.
+- **Fine filter bank:** `dfb4096x1c`, 4096 channels of 30 kHz, with power and accumulation over ACC_LEN + 1 spectra of 33.33 µs. The default is 180000 spectra = 6.000 s.
+- **Storage:** each integration is written to one of 2 banks of 4096 × 64 bit in UltraRAM. An interrupt (SPI 92) tells `lunaserver`, which reads the bank over AXI-Lite (about 3 ms) and sends it to every client on TCP 5002.
+- **Control:** enable/disable, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`). Any change restarts the integration immediately, and the next integration is flagged "first after restart".
+- **The CSIRO cores are not in this repository:**
+  - They live in `refernces/PFB/` (gitignored), from System Generator 2018.2.
+  - `hw/scripts/spec_ip.tcl` creates them as IP-catalog instances, and the build stops with a clear message if the folder is missing.
 
 ## Bring-up checklist
 

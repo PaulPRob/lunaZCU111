@@ -4,6 +4,7 @@
 -- Register map (byte offsets, 32-bit registers) - see docs/register_map.md
 --   0x000 ID          RO  0x4C554E41 ("LUNA")
 --   0x004 VERSION     RO  [31:16] major [15:8] minor [7:0] number of banks
+--                         (major 2: the design includes the spectrometer)
 --   0x008 CTRL        RW  bit0 ARM, bit8 IRQ_EN (levels)
 --                         W1 pulses: bit1 SOFT_TRIG, bit2 TS_RESET(+flush),
 --                                    bit3 FLUSH, bit4 CNT_CLEAR
@@ -230,7 +231,7 @@ begin
         d := (others => '0');
         case a is
           when 16#000#/4 => d := x"4C554E41";
-          when 16#004#/4 => d := x"0001" & x"00" & std_logic_vector(to_unsigned(2**NB_LOG2, 8));
+          when 16#004#/4 => d := x"0002" & x"00" & std_logic_vector(to_unsigned(2**NB_LOG2, 8));
           when 16#008#/4 => d(0) := r_arm; d(8) := r_irq_en;
           when 16#00C#/4 =>
             d(3 downto 0) := std_logic_vector(resize(st_nfull, 4));

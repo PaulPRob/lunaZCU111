@@ -48,6 +48,40 @@
 #define TR_SYSREF_CNT    0x0A0
 #define TR_SCRATCH       0x0A4
 #define TR_ID_VALUE      0x4C554E41u
+#define TR_VERSION_SPEC  2u        /* VERSION major >= 2: spectrometer present */
+
+/* spectrometer (hw/hdl/spec_regs_axil.vhd), clk_spec domain */
+#define SPEC_BASE        0xA0140000u
+#define SPEC_SIZE        0x00020000u
+#define SP_ID            0x000
+#define SP_VERSION       0x004
+#define SP_CTRL          0x008
+#define   SPC_ENABLE       (1u << 0)
+#define   SPC_RESTART      (1u << 1)
+#define   SPC_CNT_CLEAR    (1u << 4)
+#define   SPC_IRQ_EN       (1u << 8)
+#define SP_STATUS        0x00C
+#define   SPS_NFULL(x)     ((x) & 0x3)
+#define   SPS_HEAD(x)      (((x) >> 4) & 0x1)
+#define   SPS_ENABLED      (1u << 8)
+#define   SPS_RUNNING      (1u << 9)
+#define   SPS_WRITING      (1u << 10)
+#define SP_SUBBAND       0x010
+#define SP_ACC_LEN       0x014
+#define SP_RELEASE       0x018
+#define SP_SPEC_COUNT    0x01C
+#define SP_LOST_COUNT    0x020
+#define SP_RESTARTS      0x024
+#define SP_SCRATCH       0x028
+#define SP_HEAD_SEQ      0x030
+#define SP_HEAD_FLAGS    0x034
+#define   SPF_FIRST        (1u << 0)
+#define   SPF_SUBBAND(x)   (((x) >> 8) & 0x1F)
+#define SP_HEAD_ACCLEN   0x038
+#define SP_HEAD_TS_LO    0x03C
+#define SP_HEAD_TS_HI    0x040
+#define SP_MEM(bank)     (0x10000u + 0x8000u * (bank))   /* 4096 x 64 bit */
+#define SP_ID_VALUE      0x4C535043u
 
 /* AXI DMA (simple mode, S2MM only) */
 #define DMA_S2MM_DMACR   0x30

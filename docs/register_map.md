@@ -6,9 +6,10 @@
 | `0xA010_0000` | 4 KB   | `trigger_capture` registers   | clk_1x 245.76 MHz | UIO, IRQ SPI 89        |
 | `0xA011_0000` | 64 KB  | AXI DMA (S2MM only, simple mode) | pl_clk0     | UIO, IRQ SPI 90         |
 | `0xA012_0000` | 64 KB  | AXI GPIO: MMCM reset/lock     | pl_clk0        | UIO                     |
+| `0xA014_0000` | 128 KB | `spectrometer` registers + spectrum banks | clk_spec 122.88 MHz | UIO, IRQ SPI 92 |
 | `0x7000_0000` | 16 MB  | DMA target (reserved DDR)     | –              | UIO memory map          |
 
-> **Warning:** The trigger core is clocked by the MMCM, which runs from the LMK04208 PL reference clock. That clock exists only after the RF clocks have been programmed. Reading or writing `0xA010_0000` before the MMCM has locked (GPIO2 bit 0 = 1) hangs the AXI bus.
+> **Warning:** The trigger core and the spectrometer are clocked by the MMCM, which runs from the LMK04208 PL reference clock. That clock exists only after the RF clocks have been programmed. Reading or writing `0xA010_0000` or `0xA014_0000` before the MMCM has locked (GPIO2 bit 0 = 1) hangs the AXI bus. The spectrometer exists only in bitstreams whose trigger-core VERSION major is 2 or more.
 
 ## AXI GPIO `0xA012_0000`
 
@@ -25,7 +26,7 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 | Offset | Name | Access | Description |
 |--------|------|--------|-------------|
 | 0x000 | ID | RO | `0x4C554E41` ("LUNA") |
-| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of capture banks (4) |
+| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of capture banks (4). Major 2 = the design includes the spectrometer |
 | 0x008 | CTRL | RW/W1P | bit0 **ARM** (level), bit8 **IRQ_EN** (level); pulses: bit1 SOFT_TRIG, bit2 TS_RESET (also flushes), bit3 FLUSH, bit4 CNT_CLEAR. Always write the level bits back with any pulse. |
 | 0x00C | STATUS | RO | [3:0] banks full (events waiting), [7:4] head bank, bit8 capturing (post-trigger), bit9 readout busy, bit10 active bank pre-filled (ready to trigger), bit16 armed |
 | 0x010 | MODE | RW | bit0: 0 = coincidence, 1 = anti-coincidence |
@@ -69,6 +70,49 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 | 44 | u32 lost-trigger count, u32 trigger count |
 | 52 | reserved (12 bytes) |
 | 64 | int16 ch0[L], ch1[L], … ch7[L] |
+
+## Spectrometer `0xA014_0000`
+
+Integrating spectrometer on ADC channel 0 (`hw/hdl/spectrometer_top.vhd`):
+
+- **Coarse filter bank (`pfb32x16t`):** splits the 3.93216 GS/s real signal into 17 coarse channels ("subbands") of 122.88 MHz, each sampled at 122.88 MS/s complex. Subband k is centred on k × 122.88 MHz. Subbands 0 (DC) and 16 (Nyquist) are real.
+- **Fine filter bank (`dfb4096x1c`):** the subband selected by SUBBAND goes to this 4096-channel filter bank, with 30 kHz channels. A spectrum takes 4096 / 122.88 MHz = 33.33 µs.
+- **Integration:** the power in each channel is accumulated (64 bit) over ACC_LEN + 1 spectra. The default is 180000 spectra = 6.000 s.
+- **Storage:** each integration is written to one of two banks. The interrupt is high while a full bank is waiting. When both banks are full, further integrations are counted in LOST_COUNT.
+
+| Offset | Name | Access | Description |
+|--------|------|--------|-------------|
+| 0x000 | ID | RO | `0x4C535043` ("LSPC") |
+| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of banks (2) |
+| 0x008 | CTRL | RW/W1P | bit0 **ENABLE** (level; 0→1 restarts the integration), bit8 **IRQ_EN** (level); pulses: bit1 RESTART, bit4 CNT_CLEAR. Always write the level bits back with any pulse. |
+| 0x00C | STATUS | RO | [1:0] banks full, bit4 head bank, bit8 enabled, bit9 running (fine filter bank fed), bit10 writing a bank |
+| 0x010 | SUBBAND | RW | coarse channel 0..16 for the fine filter bank (default 12 = 1474.56 MHz). A write restarts the integration |
+| 0x014 | ACC_LEN | RW | spectra per integration − 1 (default 179999 = 6.000 s). A write restarts the integration |
+| 0x018 | RELEASE | WO | bit0: free the oldest full bank |
+| 0x01C | SPEC_COUNT | RO | integrations stored (= next sequence number) |
+| 0x020 | LOST_COUNT | RO | integrations lost because both banks were full |
+| 0x024 | RESTARTS | RO | integration restarts |
+| 0x028 | SCRATCH | RW | scratch register |
+| 0x030 | HEAD_SEQ | RO | oldest full bank: sequence number |
+| 0x034 | HEAD_FLAGS | RO | oldest full bank: bit0 first integration after a restart, [12:8] subband |
+| 0x038 | HEAD_ACCLEN | RO | oldest full bank: ACC_LEN it was integrated with |
+| 0x03C / 0x040 | HEAD_TS_LO / HI | RO | oldest full bank: ADC sample counter (trigger-core time base) when the integration ended |
+| 0x10000 + 0x8000·b + 8·k | BANK[b][k] | RO | bank b, fine channel k: accumulated power [31:0] at +0, [63:32] at +4 |
+
+**Restarts:**
+- **What causes one:** ENABLE 0→1, RESTART, or a write to SUBBAND or ACC_LEN. The fine filter bank is resynchronised and its accumulator restarts from zero. An integration that was being written is discarded.
+- **The first integration after a restart** is flagged in HEAD_FLAGS. Its first few spectra still contain filter-tap history from before the restart, which is negligible except for very short integrations.
+
+**Fine channel order:**
+- Channels are in FFT order. Channel k is at the subband centre + k × 30 kHz for k < 2048, and at the centre + (k − 4096) × 30 kHz for k ≥ 2048.
+- `tb_spec` checks this with tones at +25 and −100 channels.
+
+### Spectrum readout sequence (what `lunaserver` does)
+
+1. The IRQ (level, SPI 92) is high while STATUS.banks_full > 0 and IRQ_EN = 1.
+2. Read HEAD_SEQ, HEAD_FLAGS, HEAD_ACCLEN and HEAD_TS_LO/HI.
+3. Read the 4096 × 64-bit powers of bank STATUS.head (8192 AXI-Lite reads, about 3 ms).
+4. RELEASE ← 1.
 
 ## Channel mapping
 

@@ -1,11 +1,14 @@
 # lunaserver network protocol
 
-The server runs on the ZCU111 PS at **192.168.2.10**. It has two TCP ports:
+The server runs on the ZCU111 PS at **192.168.2.10**. It has three TCP ports:
 
 | Port | Direction | Content |
 |------|-----------|---------|
 | 5000 | server → client | one binary frame per captured event (any number of clients) |
 | 5001 | both | ASCII control commands, one reply line per command |
+| 5002 | server → client | one binary frame per spectrometer integration (any number of clients) |
+
+The three ports are independent. A client can stream events and spectra and send control commands at the same time.
 
 ## Data port (5000)
 
@@ -31,6 +34,42 @@ The trigger sample is `samples[ch][trig_offset]`, where `trig_offset = L/2 + (tr
 
 **Slow clients:** each client has a queue of 64 frames on top of the TCP socket buffers. When the queue is full, new frames for that client are dropped; the capture is never throttled. A gap in the event `seq` numbers is the reliable way to detect drops. The `dropped` field only counts drops that happened before the frame that carries it.
 
+## Spectrum port (5002)
+
+The spectrometer works on ADC channel 0:
+- **Coarse channels:** the signal is split into 17 coarse channels ("subbands") of 122.88 MHz. Subband k is centred on k × 122.88 MHz.
+- **Fine channels:** the selected subband goes through a 4096-channel filter bank, with 30 kHz channels.
+- **Integration:** the power in each channel is accumulated over the integration time, 6.000 s by default.
+
+Each integration is sent as one frame:
+
+```
+struct luna_spec_hdr  (64 bytes)
+  0  char[4]  magic        "LSPC"
+  4  u16      version      1
+  6  u16      hdr_bytes    64
+  8  u32      frame_bytes  64 + 8 * 4096
+ 12  u32      flags        bit0 = simulated data, bit1 = first integration after a restart
+ 16  u64      host_time_ns CLOCK_REALTIME when the spectrum was read out
+ 24  u64      end_sample   ADC sample counter when the integration ended (same time base
+                           as trig_sample of the events)
+ 32  f64      sample_rate  3.93216e9
+ 40  u32      seq          integration sequence number (FPGA)
+ 44  u32      n_spectra    spectra accumulated (integration time = n_spectra * 33.33 us)
+ 48  u32      dropped      frames dropped for this client before this frame
+ 52  u32      lost         integrations lost in the FPGA (both banks full) so far
+ 56  u16      n_channels   4096
+ 58  u8       subband      0..16
+ 59  u8       reserved
+ 60  u32      restarts     integration restarts so far
+u64 power[4096]            accumulated power per fine channel, FFT order
+```
+
+- **Channel frequencies:** channel k is at `subband × 122.88 MHz + k × 30 kHz` for k < 2048, and at `subband × 122.88 MHz + (k − 4096) × 30 kHz` for k ≥ 2048. In numpy this is `np.fft.fftfreq(4096) * 122.88e6`, and `np.fft.fftshift` puts the channels in frequency order.
+- **Mean power:** `power / n_spectra` is the mean power per spectrum, in arbitrary units.
+- **Restarts:** enabling the spectrometer, `SPEC RESTART`, or changing the subband or integration time restarts the integration immediately. The next integration has flag bit 1 set; drop it if a few spectra of filter history from before the change matter.
+- **Lost integrations:** the FPGA holds two finished integrations. The server reads each one in about 3 ms. Integrations shorter than about 50 ms can therefore be lost, and they are counted in `lost`.
+
 ## Control port (5001)
 
 Commands are case-insensitive, one per line. Each reply is one line beginning with `OK` or `ERR`, usually made of `key=value` fields. You can also use `nc 192.168.2.10 5001` by hand.
@@ -39,7 +78,7 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 |---------|--------|
 | `HELP` | list the commands |
 | `STATUS` | armed, mode, banks full, trigger/lost counts, clients, frames sent/dropped, sample counter, SYSREF count, RFDC PLL lock and MTS latency |
-| `GET CONFIG` | thresholds, mode, N, window, mask, length, armed |
+| `GET CONFIG` | thresholds, mode, N, window, mask, length, armed, spec_enable, spec_subband, spec_nspec |
 | `GET RATES` | per channel: clock cycles with a hit per second since the previous `GET RATES` |
 | `GET PEAKS` | per channel: largest \|x\| since the previous `GET PEAKS` (noise level; useful for choosing thresholds) |
 | `SET THRESH <ch\|ALL> <0-32767>` | threshold in 16-bit units (12-bit code × 16) |
@@ -51,7 +90,13 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 | `ARM` / `DISARM` | enable/disable triggering (events already captured are still sent) |
 | `SOFTTRIG` | force one capture now |
 | `RESYNC` | run multi-tile synchronisation again |
-| `SAVE` | save the configuration (SD card: `/mnt/sd/lunaserver.conf`) |
+| `GET SPEC` | spectrometer: present, enabled, subband, nspec, tint (s), centre_mhz, bandwidth_mhz, fine_khz, integrations, lost, restarts, banks_full, clients, sent, dropped |
+| `SPEC ON` / `SPEC OFF` | enable or disable the spectrometer (ON starts a fresh integration) |
+| `SPEC RESTART` | discard the current integration and start a new one |
+| `SET SPEC_SUBBAND <0-16>` | coarse channel for the fine spectrum, centre = k × 122.88 MHz (default 12 = 1474.56 MHz); restarts the integration |
+| `SET SPEC_TINT <seconds>` | integration time, rounded to whole spectra of 33.33 µs (default 6.0); restarts the integration |
+| `SET SPEC_NSPEC <n>` | integration time as a number of spectra (180000 = 6.000 s); restarts the integration |
+| `SAVE` | save the configuration, including the spectrometer settings (SD card: `/mnt/sd/lunaserver.conf`) |
 
 ### Trigger definitions
 

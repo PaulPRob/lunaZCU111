@@ -13,8 +13,12 @@ struct pl {
     struct hw_region dma;    /* AXI DMA S2MM                                */
     struct hw_region gpio;   /* MMCM reset / locked                         */
     struct hw_region buf;    /* DMA target buffer (reserved memory)         */
+    struct hw_region spec;   /* spectrometer registers + spectrum banks     */
     int nbanks;
     uint32_t ctrl_levels;    /* shadow of the CTRL level bits (ARM, IRQ_EN) */
+    int has_spec;            /* spectrometer present (see spec.h)           */
+    int spec_shadow_valid;
+    uint32_t spec_acc_len, spec_subband;   /* last values written          */
 };
 
 int  pl_open(struct pl *p);

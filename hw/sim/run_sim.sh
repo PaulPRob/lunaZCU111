@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Run the VHDL unit simulations (Vivado xsim) and compare against the golden
-# models.  Usage:  hw/sim/run_sim.sh [trig|cap|all]
+# models.  Usage:  hw/sim/run_sim.sh [trig|cap|all|spec|full]   (all = trig+cap)
+#   spec : spectrometer with the CSIRO PFB/DFB cores (needs refernces/PFB,
+#          runs Vivado in project mode, ~20-40 min);  full = all + spec
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HDL="$HERE/../hdl"
@@ -10,6 +12,8 @@ mkdir -p "$BUILD"
 cd "$BUILD"
 # shellcheck disable=SC1091
 source "${XILINX_VIVADO_SETTINGS:-$HOME/Xilinx/Vivado/2023.2/settings64.sh}" >/dev/null
+# shellcheck disable=SC1091
+[[ -f "$HOME/Xilinx/license.sh" ]] && source "$HOME/Xilinx/license.sh"
 
 SRCS="luna_pkg adc_gearbox chan_detect trig_logic capture_mem capture_ctrl trig_regs_axil trigger_capture_top"
 # compile quietly, but show the log if anything fails
@@ -21,7 +25,7 @@ done
 
 fail=0
 
-if [[ "$WHAT" == trig || "$WHAT" == all ]]; then
+if [[ "$WHAT" == trig || "$WHAT" == all || "$WHAT" == full ]]; then
   run xvhdl --relax "$HERE/tb_trig.vhd"
   run xelab -relax -debug off tb_trig -s tb_trig
   # mode N W mask
@@ -43,11 +47,22 @@ if [[ "$WHAT" == trig || "$WHAT" == all ]]; then
   done
 fi
 
-if [[ "$WHAT" == cap || "$WHAT" == all ]]; then
+if [[ "$WHAT" == cap || "$WHAT" == all || "$WHAT" == full ]]; then
   run xvhdl --relax "$HERE/tb_capture.vhd"
   run xelab -relax -debug off tb_capture -s tb_capture
   xsim tb_capture -R | grep -E "^(Note|Error|Failure)|TB" || true
   python3 "$HERE/check_capture.py" cap_stream.txt cap_log.txt || fail=1
+fi
+
+if [[ "$WHAT" == spec || "$WHAT" == full ]]; then
+  if [[ -d "$HERE/../../refernces/PFB" || -n "${LUNA_PFB_IP:-}" ]]; then
+    vivado -mode batch -nojournal -log sim_spec.log -source "$HERE/sim_spec.tcl" \
+      > sim_spec.stdout 2>&1 || { tail -40 sim_spec.stdout; exit 1; }
+    grep -E "TB |Failure|FAIL" sim_spec.stdout || true
+    python3 "$HERE/check_spec.py" spec_sim/spec_sim.sim/sim_1/behav/xsim/spec_writes.txt || fail=1
+  else
+    echo "spec: skipped (refernces/PFB with the CSIRO cores not present)"
+  fi
 fi
 
 if [[ $fail -ne 0 ]]; then

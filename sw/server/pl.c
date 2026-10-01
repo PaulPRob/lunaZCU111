@@ -27,6 +27,7 @@ static uint64_t now_us(void)
 int pl_open(struct pl *p)
 {
     memset(p, 0, sizeof *p);
+    p->spec.fd = -1;            /* opened later by spec_init() */
     if (hw_open(&p->gpio, GPIO_BASE, 0x1000) < 0 ||
         hw_open(&p->trig, TRIG_BASE, 0x1000) < 0 ||
         hw_open(&p->dma,  DMA_BASE,  0x1000) < 0 ||
@@ -39,6 +40,7 @@ int pl_open(struct pl *p)
 
 void pl_close(struct pl *p)
 {
+    hw_close(&p->spec);
     hw_close(&p->buf);
     hw_close(&p->dma);
     hw_close(&p->trig);
@@ -65,7 +67,7 @@ int pl_mmcm_start(struct pl *p, int timeout_ms)
         usleep(1000);
     }
     usleep(10000);                         /* proc_sys_reset release */
-    LOGI("pl: MMCM locked (clk_2x 491.52 MHz, clk_1x 245.76 MHz)");
+    LOGI("pl: MMCM locked (clk_2x 491.52 MHz, clk_1x 245.76 MHz, clk_spec 122.88 MHz)");
     return 0;
 }
 

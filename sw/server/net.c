@@ -1,10 +1,11 @@
 /*
  * net.c - TCP servers
  *
- * Data clients receive every event as one frame (64-byte frame header +
- * event).  Sending is non-blocking with a bounded per-client queue: a client
- * that cannot keep up loses frames (counted in its frame header 'dropped'),
- * but it never slows down the capture.
+ * Each data stream (events on 5000, spectra on 5002) has its own listening
+ * port and clients.  A client receives every frame of its stream (64-byte
+ * frame header + payload).  Sending is non-blocking with a bounded
+ * per-client queue: a client that cannot keep up loses frames (counted in
+ * its frame header 'dropped'), but it never slows down the capture.
  */
 #include "net.h"
 
@@ -23,9 +24,9 @@
 #include "log.h"
 
 struct qitem {
-    struct net_event     *e;
-    struct luna_frame_hdr hdr;
-    size_t                off;      /* bytes of (hdr + data) already sent */
+    struct net_event *e;
+    uint8_t           hdr[LUNA_HDR_BYTES];
+    size_t            off;          /* bytes of (hdr + data) already sent */
 };
 
 struct dclient {
@@ -43,14 +44,21 @@ struct cclient {
     size_t len;
 };
 
-struct net {
-    int            dl, cl;
+struct dstream {
+    int            lfd;
+    int            port;
     struct dclient d[NET_MAX_CLIENTS];
     int            nd;
+    uint64_t       sent, dropped;
+};
+
+struct net {
+    struct dstream s[NET_MAX_STREAMS];
+    int            ns;
+    int            cl;
     struct cclient c[NET_MAX_CLIENTS];
     int            nc;
     net_ctrl_fn    fn;
-    uint64_t       sent, dropped;
 };
 
 struct net_event *net_event_alloc(size_t payload_len)
@@ -88,19 +96,31 @@ static int listen_on(int port)
     return fd;
 }
 
-struct net *net_create(int data_port, int ctrl_port, net_ctrl_fn fn)
+struct net *net_create(const int *data_ports, int ndata, int ctrl_port, net_ctrl_fn fn)
 {
+    if (ndata < 1 || ndata > NET_MAX_STREAMS)
+        return NULL;
     struct net *n = calloc(1, sizeof *n);
     if (!n)
         return NULL;
     n->fn = fn;
-    n->dl = listen_on(data_port);
+    n->ns = ndata;
+    for (int i = 0; i < NET_MAX_STREAMS; i++)
+        n->s[i].lfd = -1;
+    int ok = 1;
+    for (int i = 0; i < ndata; i++) {
+        n->s[i].port = data_ports[i];
+        n->s[i].lfd = listen_on(data_ports[i]);
+        ok &= n->s[i].lfd >= 0;
+    }
     n->cl = listen_on(ctrl_port);
-    if (n->dl < 0 || n->cl < 0) {
+    if (!ok || n->cl < 0) {
         net_destroy(n);
         return NULL;
     }
-    LOGI("net: data port %d, control port %d", data_port, ctrl_port);
+    for (int i = 0; i < ndata; i++)
+        LOGI("net: data stream %d on port %d", i, data_ports[i]);
+    LOGI("net: control port %d", ctrl_port);
     return n;
 }
 
@@ -120,13 +140,16 @@ void net_destroy(struct net *n)
 {
     if (!n)
         return;
-    for (int i = 0; i < n->nd; i++)
-        dclient_close(&n->d[i]);
+    for (int s = 0; s < n->ns; s++) {
+        struct dstream *st = &n->s[s];
+        for (int i = 0; i < st->nd; i++)
+            dclient_close(&st->d[i]);
+        if (st->lfd >= 0)
+            close(st->lfd);
+    }
     for (int i = 0; i < n->nc; i++)
         if (n->c[i].fd >= 0)
             close(n->c[i].fd);
-    if (n->dl >= 0)
-        close(n->dl);
     if (n->cl >= 0)
         close(n->cl);
     free(n);
@@ -146,23 +169,35 @@ static int accept_one(int lfd, char *peer, size_t plen)
     return fd;
 }
 
+int net_max_pollfds(void)
+{
+    return 1 + NET_MAX_STREAMS * (1 + NET_MAX_CLIENTS) + NET_MAX_CLIENTS;
+}
+
+/* pollfd layout: [ctrl listen] [stream listen] x ns [stream clients] [ctrl clients] */
 int net_fill_pollfds(struct net *n, struct pollfd *pfd, int max)
 {
-    int k = 0;
-    if (max < 2 + n->nd + n->nc)
+    int k = 0, need = 1 + n->ns + n->nc;
+    for (int s = 0; s < n->ns; s++)
+        need += n->s[s].nd;
+    if (max < need)
         return 0;
-    pfd[k++] = (struct pollfd){ .fd = n->dl, .events = POLLIN };
     pfd[k++] = (struct pollfd){ .fd = n->cl, .events = POLLIN };
-    for (int i = 0; i < n->nd; i++)
-        pfd[k++] = (struct pollfd){ .fd = n->d[i].fd,
-                                    .events = (short)(POLLIN | (n->d[i].qn ? POLLOUT : 0)) };
+    for (int s = 0; s < n->ns; s++)
+        pfd[k++] = (struct pollfd){ .fd = n->s[s].lfd, .events = POLLIN };
+    for (int s = 0; s < n->ns; s++)
+        for (int i = 0; i < n->s[s].nd; i++) {
+            struct dclient *c = &n->s[s].d[i];
+            pfd[k++] = (struct pollfd){ .fd = c->fd,
+                                        .events = (short)(POLLIN | (c->qn ? POLLOUT : 0)) };
+        }
     for (int i = 0; i < n->nc; i++)
         pfd[k++] = (struct pollfd){ .fd = n->c[i].fd, .events = POLLIN };
     return k;
 }
 
 /* send as much of the queue as the socket accepts */
-static int dclient_flush(struct net *n, struct dclient *c)
+static int dclient_flush(struct dstream *st, struct dclient *c)
 {
     while (c->qn) {
         struct qitem *it = &c->q[c->qh];
@@ -171,7 +206,7 @@ static int dclient_flush(struct net *n, struct dclient *c)
         struct iovec iov[2];
         int niov = 0;
         if (it->off < hl) {
-            iov[niov].iov_base = (uint8_t *)&it->hdr + it->off;
+            iov[niov].iov_base = it->hdr + it->off;
             iov[niov++].iov_len = hl - it->off;
             iov[niov].iov_base = it->e->data;
             iov[niov++].iov_len = it->e->len;
@@ -191,7 +226,7 @@ static int dclient_flush(struct net *n, struct dclient *c)
         net_event_put(it->e);
         c->qh = (c->qh + 1) % NET_MAX_QUEUE;
         c->qn--;
-        n->sent++;
+        st->sent++;
     }
     return 0;
 }
@@ -239,36 +274,43 @@ static void cclient_input(struct net *n, struct cclient *c)
 
 void net_handle(struct net *n, const struct pollfd *pfd, int count)
 {
-    if (count < 2)
+    if (count < 1 + n->ns)
         return;
-    int k = 2;
-    for (int i = 0; i < n->nd && k < count; i++, k++) {
-        struct dclient *c = &n->d[i];
-        if (pfd[k].revents & (POLLERR | POLLHUP)) {
-            dclient_close(c);
-            continue;
-        }
-        if (pfd[k].revents & POLLIN) {       /* clients should not send */
-            char tmp[256];
-            ssize_t r = read(c->fd, tmp, sizeof tmp);
-            if (r == 0 || (r < 0 && errno != EAGAIN)) {
+    int k = 1 + n->ns;
+    for (int s = 0; s < n->ns; s++) {
+        struct dstream *st = &n->s[s];
+        for (int i = 0; i < st->nd && k < count; i++, k++) {
+            struct dclient *c = &st->d[i];
+            if (pfd[k].revents & (POLLERR | POLLHUP)) {
                 dclient_close(c);
                 continue;
             }
+            if (pfd[k].revents & POLLIN) {       /* clients should not send */
+                char tmp[256];
+                ssize_t r = read(c->fd, tmp, sizeof tmp);
+                if (r == 0 || (r < 0 && errno != EAGAIN)) {
+                    dclient_close(c);
+                    continue;
+                }
+            }
+            if ((pfd[k].revents & POLLOUT) && dclient_flush(st, c) < 0)
+                dclient_close(c);
         }
-        if ((pfd[k].revents & POLLOUT) && dclient_flush(n, c) < 0)
-            dclient_close(c);
     }
     for (int i = 0; i < n->nc && k < count; i++, k++)
         if (pfd[k].revents & (POLLIN | POLLHUP | POLLERR))
             cclient_input(n, &n->c[i]);
 
     /* compact closed clients */
-    int j = 0;
-    for (int i = 0; i < n->nd; i++)
-        if (n->d[i].fd >= 0)
-            n->d[j++] = n->d[i];
-    n->nd = j;
+    int j;
+    for (int s = 0; s < n->ns; s++) {
+        struct dstream *st = &n->s[s];
+        j = 0;
+        for (int i = 0; i < st->nd; i++)
+            if (st->d[i].fd >= 0)
+                st->d[j++] = st->d[i];
+        st->nd = j;
+    }
     j = 0;
     for (int i = 0; i < n->nc; i++)
         if (n->c[i].fd >= 0)
@@ -276,24 +318,27 @@ void net_handle(struct net *n, const struct pollfd *pfd, int count)
     n->nc = j;
 
     /* new connections */
-    if (pfd[0].revents & POLLIN) {
+    for (int s = 0; s < n->ns; s++) {
+        struct dstream *st = &n->s[s];
+        if (!(pfd[1 + s].revents & POLLIN))
+            continue;
         char peer[48];
-        int fd = accept_one(n->dl, peer, sizeof peer);
+        int fd = accept_one(st->lfd, peer, sizeof peer);
         if (fd >= 0) {
-            if (n->nd >= NET_MAX_CLIENTS) {
+            if (st->nd >= NET_MAX_CLIENTS) {
                 close(fd);
             } else {
                 int sz = 8 << 20;
                 setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sz, sizeof sz);
-                struct dclient *c = &n->d[n->nd++];
+                struct dclient *c = &st->d[st->nd++];
                 memset(c, 0, sizeof *c);
                 c->fd = fd;
                 snprintf(c->peer, sizeof c->peer, "%s", peer);
-                LOGI("net: data client %s connected", peer);
+                LOGI("net: data client %s connected to port %d", peer, st->port);
             }
         }
     }
-    if (pfd[1].revents & POLLIN) {
+    if (pfd[0].revents & POLLIN) {
         char peer[48];
         int fd = accept_one(n->cl, peer, sizeof peer);
         if (fd >= 0) {
@@ -310,29 +355,51 @@ void net_handle(struct net *n, const struct pollfd *pfd, int count)
     }
 }
 
-void net_publish(struct net *n, struct net_event *e)
+void net_publish(struct net *n, int stream, struct net_event *e)
 {
-    for (int i = 0; i < n->nd; i++) {
-        struct dclient *c = &n->d[i];
+    if (stream < 0 || stream >= n->ns)
+        return;
+    struct dstream *st = &n->s[stream];
+    for (int i = 0; i < st->nd; i++) {
+        struct dclient *c = &st->d[i];
         if (c->fd < 0)
             continue;
         if (c->qn >= NET_MAX_QUEUE) {
             c->dropped++;
-            n->dropped++;
+            st->dropped++;
             continue;
         }
         struct qitem *it = &c->q[(c->qh + c->qn) % NET_MAX_QUEUE];
         it->e = e;
-        it->hdr = e->fhdr;
-        it->hdr.dropped = c->dropped;
+        memcpy(it->hdr, e->hdr, sizeof it->hdr);
+        memcpy(it->hdr + LUNA_HDR_DROPPED_OFF, &c->dropped, sizeof c->dropped);
         it->off = 0;
         e->refs++;
         c->qn++;
-        if (c->qn == 1 && dclient_flush(n, c) < 0)   /* try immediately */
+        if (c->qn == 1 && dclient_flush(st, c) < 0)   /* try immediately */
             dclient_close(c);
     }
 }
 
-int net_data_clients(const struct net *n)   { return n->nd; }
-uint64_t net_frames_sent(const struct net *n)    { return n->sent; }
-uint64_t net_frames_dropped(const struct net *n) { return n->dropped; }
+static const struct dstream *stream_of(const struct net *n, int s)
+{
+    return (s >= 0 && s < n->ns) ? &n->s[s] : NULL;
+}
+
+int net_data_clients(const struct net *n, int s)
+{
+    const struct dstream *st = stream_of(n, s);
+    return st ? st->nd : 0;
+}
+
+uint64_t net_frames_sent(const struct net *n, int s)
+{
+    const struct dstream *st = stream_of(n, s);
+    return st ? st->sent : 0;
+}
+
+uint64_t net_frames_dropped(const struct net *n, int s)
+{
+    const struct dstream *st = stream_of(n, s);
+    return st ? st->dropped : 0;
+}
