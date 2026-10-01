@@ -1,0 +1,11 @@
+[Unit]
+Description=lunaZCU111 transient capture server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/lunaserver-start.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

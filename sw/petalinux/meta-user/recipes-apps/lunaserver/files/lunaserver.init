@@ -1,0 +1,28 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          lunaserver
+# Required-Start:    $network
+# Default-Start:     S
+# Short-Description: lunaZCU111 transient capture server
+### END INIT INFO
+
+case "$1" in
+  start)
+    echo "Starting lunaserver"
+    start-stop-daemon -S -b -m -p /var/run/lunaserver.pid \
+        -x /bin/sh -- -c "/usr/bin/lunaserver-start.sh >> /var/log/lunaserver.log 2>&1"
+    ;;
+  stop)
+    echo "Stopping lunaserver"
+    killall lunaserver 2>/dev/null
+    rm -f /var/run/lunaserver.pid
+    ;;
+  restart)
+    $0 stop; sleep 1; $0 start
+    ;;
+  *)
+    echo "usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+exit 0

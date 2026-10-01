@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="860" viewBox="0 0 1500 860" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <style>
+      .box{fill:#fff;stroke:#333;stroke-width:1.5}
+      .clk{fill:#fdf2e3;stroke:#c77d1a;stroke-width:1.5}
+      .rf{fill:#e8f1fb;stroke:#2a6bb3;stroke-width:1.5}
+      .pl{fill:#eaf6ea;stroke:#2e8b3a;stroke-width:1.5}
+      .ps{fill:#f3ecfa;stroke:#7a4bb0;stroke-width:1.5}
+      .ln{stroke:#333;stroke-width:1.6;fill:none;marker-end:url(#a)}
+      .bus{stroke:#2e8b3a;stroke-width:3.5;fill:none;marker-end:url(#a)}
+      .ctl{stroke:#7a4bb0;stroke-width:1.4;fill:none;stroke-dasharray:5 3;marker-end:url(#a)}
+      .ck{stroke:#c77d1a;stroke-width:1.6;fill:none;marker-end:url(#a)}
+      .t{font-weight:bold;font-size:14px}
+      .s{font-size:11.5px;fill:#333}
+      .h{font-weight:bold;font-size:18px}
+    </style>
+  </defs>
+
+  <text x="20" y="30" class="h">lunaZCU111 : 8 x 3932.16 MSPS transient trigger &amp; capture (XCZU28DR, ZCU111)</text>
+
+  <!-- region frames -->
+  <rect x="15" y="50" width="265" height="790" rx="8" fill="none" stroke="#c77d1a" stroke-dasharray="6 4"/>
+  <text x="25" y="70" class="t" fill="#c77d1a">ZCU111 clocking</text>
+  <rect x="295" y="50" width="850" height="560" rx="8" fill="none" stroke="#2e8b3a" stroke-dasharray="6 4"/>
+  <text x="305" y="70" class="t" fill="#2e8b3a">RFSoC PL (VHDL + IP)</text>
+  <rect x="295" y="625" width="1190" height="215" rx="8" fill="none" stroke="#7a4bb0" stroke-dasharray="6 4"/>
+  <text x="305" y="645" class="t" fill="#7a4bb0">RFSoC PS (Linux, PetaLinux 2023.2)</text>
+
+  <!-- clocking -->
+  <rect x="30" y="90" width="235" height="130" class="clk" rx="6"/>
+  <text x="40" y="110" class="t">LMK04208 (U90)</text>
+  <text x="40" y="128" class="s">VCXO 122.88, VCO 2949.12 MHz</text>
+  <text x="40" y="146" class="s">OUT0 ÷384  SYSREF_FPGA 7.68 MHz</text>
+  <text x="40" y="162" class="s">OUT1 ÷384  SYSREF_RFSOC 7.68 MHz</text>
+  <text x="40" y="178" class="s">OUT2 ÷24   FPGA_REFCLK 122.88 MHz</text>
+  <text x="40" y="194" class="s">OUT4 ÷24   → LMK00304 → LMX refs</text>
+  <text x="40" y="210" class="s">SYNC via R11 SYNC_POL_INV toggle</text>
+
+  <rect x="30" y="250" width="235" height="120" class="clk" rx="6"/>
+  <text x="40" y="270" class="t">LMX2594 x3</text>
+  <text x="40" y="288" class="s">U102 A/B → ADC 224 / 225</text>
+  <text x="40" y="304" class="s">U103 A/B → ADC 227 / 226</text>
+  <text x="40" y="320" class="s">U104 A   → DAC 228</text>
+  <text x="40" y="338" class="s">VCO 7864.32 ÷32 = 245.76 MHz</text>
+  <text x="40" y="356" class="s">(TICS Pro file, unchanged)</text>
+
+  <rect x="30" y="400" width="235" height="95" class="clk" rx="6"/>
+  <text x="40" y="420" class="t">SC18IS602B I2C→SPI</text>
+  <text x="40" y="438" class="s">PS I2C1 → TCA9548A 0x74 ch5</text>
+  <text x="40" y="454" class="s">addr 0x2F; SS0 U104, SS1 LMK,</text>
+  <text x="40" y="470" class="s">SS2 U103, SS3 U102</text>
+  <text x="40" y="486" class="s">programmed by lunaserver</text>
+  <path d="M147,400 L147,375" class="ck"/>
+  <path d="M100,400 C60,390 60,240 100,222" class="ck"/>
+
+  <path d="M147,220 L147,248" class="ck"/>
+
+  <!-- RFDC -->
+  <rect x="310" y="90" width="210" height="330" class="rf" rx="6"/>
+  <text x="320" y="110" class="t">RF Data Converter</text>
+  <text x="320" y="128" class="s">4 dual ADC tiles 224..227</text>
+  <text x="320" y="144" class="s">8 x ADC, 12 bit, real</text>
+  <text x="320" y="160" class="s">fs 3932.16 MSPS, internal PLL</text>
+  <text x="320" y="176" class="s">ref 245.76 MHz, no decimation</text>
+  <text x="320" y="192" class="s">8 samples/clk @ 491.52 MHz</text>
+  <text x="320" y="208" class="s">MTS on ADC tiles 0..3</text>
+  <text x="320" y="230" class="s">DAC tile 228: enabled only to</text>
+  <text x="320" y="246" class="s">host the Gen1 SYSREF receiver</text>
+  <text x="320" y="262" class="s">(input tied to 0, no output)</text>
+  <text x="320" y="290" class="s">ch0 224/I01 (RFMC_ADC_00)</text>
+  <text x="320" y="306" class="s">ch1 224/I23 … ch7 227/I23</text>
+  <text x="320" y="340" class="s">AXI-Lite 0xA000_0000</text>
+  <text x="320" y="356" class="s">user_sysref_adc ← PL SYSREF</text>
+  <path d="M265,310 L308,310" class="ck"/>
+  <path d="M265,160 C285,160 285,240 308,240" class="ck"/>
+  <text x="270" y="385" class="s" fill="#c77d1a">8 RF inputs</text>
+  <path d="M275,395 L308,395" class="ln"/>
+
+  <!-- MMCM + SYSREF -->
+  <rect x="310" y="450" width="210" height="75" class="clk" rx="6"/>
+  <text x="320" y="470" class="t">MMCM (clk_wiz)</text>
+  <text x="320" y="488" class="s">122.88 (AL16/AL15) ×8 = 983.04</text>
+  <text x="320" y="504" class="s">clk_2x 491.52 / clk_1x 245.76</text>
+  <text x="320" y="518" class="s">reset/lock via AXI GPIO</text>
+  <rect x="310" y="535" width="210" height="60" class="clk" rx="6"/>
+  <text x="320" y="555" class="t">pl_sysref_sync</text>
+  <text x="320" y="573" class="s">AK17/AK16, falling-edge capture</text>
+  <text x="320" y="588" class="s">→ clk_2x → user_sysref_adc</text>
+  <path d="M265,180 C290,180 285,480 308,480" class="ck"/>
+  <path d="M265,146 C295,146 290,560 308,560" class="ck"/>
+
+  <!-- datapath -->
+  <path d="M520,150 L565,150" class="bus"/>
+  <text x="524" y="140" class="s">8×128b</text>
+  <rect x="565" y="90" width="120" height="120" class="pl" rx="6"/>
+  <text x="575" y="110" class="t">adc_gearbox</text>
+  <text x="575" y="128" class="s">×8</text>
+  <text x="575" y="146" class="s">491.52 → 245.76</text>
+  <text x="575" y="162" class="s">8 → 16 samples</text>
+  <text x="575" y="178" class="s">(256 b/ch/clk)</text>
+  <path d="M685,150 L725,150" class="bus"/>
+
+  <rect x="725" y="90" width="130" height="120" class="pl" rx="6"/>
+  <text x="735" y="110" class="t">chan_detect ×8</text>
+  <text x="735" y="128" class="s">|x| &gt; THRESH[ch]</text>
+  <text x="735" y="146" class="s">per-lane hits +</text>
+  <text x="735" y="162" class="s">samples-since-hit</text>
+  <text x="735" y="178" class="s">peak / hit counters</text>
+  <path d="M855,150 L895,150" class="bus"/>
+
+  <rect x="895" y="90" width="235" height="120" class="pl" rx="6"/>
+  <text x="905" y="110" class="t">trig_logic (sample exact)</text>
+  <text x="905" y="128" class="s">COINC: ≥N of mask within W (64)</text>
+  <text x="905" y="144" class="s">ANTI: exactly 1 channel in ±W</text>
+  <text x="905" y="160" class="s">SOFT trigger</text>
+  <text x="905" y="178" class="s">→ trigger position (64-bit</text>
+  <text x="905" y="194" class="s">sample index), channel mask</text>
+  <path d="M1012,210 L1012,250" class="ln"/>
+
+  <rect x="610" y="250" width="520" height="150" class="pl" rx="6"/>
+  <text x="620" y="270" class="t">capture_ctrl : 4 banks × 8 ch × 16384 samples (URAM, 1 MiB)</text>
+  <text x="620" y="290" class="s">active bank written continuously as a ring buffer (all 8 channels, same address)</text>
+  <text x="620" y="306" class="s">trigger at T → keep words [T/16 − L/32, T/16 + L/32) → trigger in the middle (L/2 + T mod 16)</text>
+  <text x="620" y="322" class="s">L = CAP_LEN 4096..16384; bank frozen after post-trigger half, next bank becomes active</text>
+  <text x="620" y="338" class="s">all banks full → trigger counted as lost; IRQ while ≥1 bank full</text>
+  <text x="620" y="360" class="s">readout: 64-byte header + ch0[L] … ch7[L] as 128-bit AXI-Stream (tlast)</text>
+  <text x="620" y="380" class="s">trig_regs_axil 0xA010_0000 : thresholds, mode, N, W, mask, length, status</text>
+  <path d="M620,150 C620,230 640,230 640,248" class="bus"/>
+
+  <rect x="610" y="430" width="200" height="80" class="pl" rx="6"/>
+  <text x="620" y="450" class="t">AXI DMA (S2MM)</text>
+  <text x="620" y="468" class="s">simple mode, 128 bit</text>
+  <text x="620" y="484" class="s">regs 0xA011_0000</text>
+  <text x="620" y="500" class="s">→ DDR 0x7000_0000</text>
+  <path d="M700,400 L700,428" class="bus"/>
+
+  <rect x="850" y="430" width="280" height="80" class="pl" rx="6"/>
+  <text x="860" y="450" class="t">AXI SmartConnect (control)</text>
+  <text x="860" y="468" class="s">HPM0 → RFDC, trigger regs, DMA, GPIO</text>
+  <text x="860" y="484" class="s">interrupts: pl_ps_irq0[0] trigger,</text>
+  <text x="860" y="500" class="s">[1] DMA, [2] RFDC</text>
+
+  <!-- PS -->
+  <rect x="560" y="665" width="250" height="160" class="ps" rx="6"/>
+  <text x="570" y="685" class="t">DDR4 + S_AXI_HP0</text>
+  <text x="570" y="703" class="s">16 MiB reserved-memory</text>
+  <text x="570" y="719" class="s">(DMA target, UIO)</text>
+  <path d="M700,510 L700,663" class="bus"/>
+
+  <rect x="850" y="665" width="330" height="160" class="ps" rx="6"/>
+  <text x="860" y="685" class="t">lunaserver (C)</text>
+  <text x="860" y="703" class="s">1. program LMK04208 + 3×LMX2594 (i2c-dev)</text>
+  <text x="860" y="719" class="s">2. MMCM reset/lock, RFDC start-up, MTS</text>
+  <text x="860" y="735" class="s">3. trigger IRQ (UIO) → READOUT → DMA</text>
+  <text x="860" y="751" class="s">    → copy → RELEASE bank</text>
+  <text x="860" y="767" class="s">4. push event frames to TCP 5000 clients</text>
+  <text x="860" y="783" class="s">5. text commands on TCP 5001</text>
+  <text x="860" y="805" class="s">config: /mnt/sd/lunaserver.conf</text>
+  <path d="M990,663 L990,512" class="ctl"/>
+  <path d="M810,745 L848,745" class="ln"/>
+
+  <rect x="310" y="665" width="210" height="160" class="ps" rx="6"/>
+  <text x="320" y="685" class="t">Cortex-A53 ×4</text>
+  <text x="320" y="703" class="s">PetaLinux 2023.2</text>
+  <text x="320" y="719" class="s">UIO (generic-uio),</text>
+  <text x="320" y="735" class="s">librfdc + libmetal</text>
+  <text x="320" y="751" class="s">SD card boot (SW6 1110)</text>
+  <text x="320" y="767" class="s">I2C1 → clock bridge</text>
+
+  <rect x="1220" y="665" width="250" height="160" class="ps" rx="6"/>
+  <text x="1230" y="685" class="t">GEM3 1 GbE (RGMII)</text>
+  <text x="1230" y="703" class="s">eth0 192.168.2.10/24</text>
+  <path d="M1180,745 L1218,745" class="ln"/>
+  <text x="1230" y="740" class="s">TCP 5000 events →</text>
+  <text x="1230" y="756" class="s">TCP 5001 ← commands</text>
+  <path d="M1345,663 L1345,560" class="ln"/>
+  <rect x="1220" y="470" width="250" height="90" class="box" rx="6"/>
+  <text x="1230" y="490" class="t">Client PC (Python)</text>
+  <text x="1230" y="508" class="s">lunaclient: EventStream, Control</text>
+  <text x="1230" y="524" class="s">luna-client status / set / watch /</text>
+  <text x="1230" y="540" class="s">record (.npz), on_event() stub</text>
+</svg>
