@@ -81,6 +81,22 @@ cd sw/server && make host && ./lunaserver-host -s 10 -c /tmp/luna.conf   # 10 sy
 cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-client watch
 ```
 
+## Versions and development
+
+- **Releases** are git tags. Each one has a GitHub release with the SD card images (`BOOT.BIN`, `image.ub`, `boot.scr`), the XSA, the bitstream and the timing/utilisation reports, because build outputs are not tracked in git.
+  - `v1.0`: first working hardware release (firmware VERSION 1.0, protocol version 1).
+- **New features** are developed on a branch checked out in its own folder with `git worktree`, so the released design stays built and bootable alongside them:
+
+  ```bash
+  git worktree add -b <feature> ../lunaZCU111-<feature>   # new folder on a new branch
+  git worktree list
+  git worktree remove ../lunaZCU111-<feature>             # after merging into main
+  ```
+
+  Each worktree has its own `hw/build/` and PetaLinux project. `setup.sh` points all of them at one shared download/sstate cache (`~/Xilinx/plnx-cache`, override with `PLNX_CACHE`), so a second PetaLinux build reuses the first one's results. Run only one Vivado or PetaLinux build at a time on this 16 GB machine.
+- **Block design changes** must go into `hw/scripts/build_bd.tcl` (edit it, or `write_bd_tcl` after GUI changes). The Vivado project in `hw/build/` is regenerated and is not in git.
+- **Version numbers:** bump the firmware `VERSION` register (`trig_regs_axil.vhd`, major.minor) and `LUNA_PROTO_VERSION` (`protocol.h`) when the register map or network frames change, so mismatched firmware, server and client are detected.
+
 ## Design notes
 
 **Clocks** (taken from `refernces/`, UG1271 and schematic 0381811):
@@ -127,7 +143,10 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-client watch
 5. Run `luna-client cmd SOFTTRIG`, then `luna-client watch`. You should get an event with src `soft`.
 6. Split one pulse (a few ns long) to all 8 inputs. The events should show the pulse at the same sample on every channel (MTS alignment) and at `trig_offset`. Check `N` and anti-coincidence with subsets of the channels.
 
-## Open items / things to verify on hardware
+## Troubleshooting and performance notes
+
+These were the open items before bring-up; the design now works on hardware, but they are the places to look if a rebuild or a new board misbehaves.
+
 
 - **LMK04208 SYNC:**
   - The ÷384 SYSREF outputs are aligned by toggling SYNC_POL_INV.

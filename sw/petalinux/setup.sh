@@ -8,6 +8,10 @@
 #   * PetaLinux 2023.2 installed (default ~/Xilinx/PetaLinux/2023.2)
 #   * hw/build/lunaZCU111.xsa  (vivado -mode batch -source hw/scripts/build.tcl)
 #
+# Environment: XSA=<path> to use another hardware export,
+#   PLNX_CACHE=<dir> for the shared downloads/sstate cache (default
+#   ~/Xilinx/plnx-cache, shared by all checkouts and git worktrees)
+#
 # Result: sw/petalinux/lunaZCU111-plnx/images/linux/{BOOT.BIN,image.ub,boot.scr}
 #         -> copy these three files to the FAT partition of the SD card.
 # -----------------------------------------------------------------------------
@@ -110,6 +114,16 @@ grep -q "file://bsp.cfg" "$UB/u-boot-xlnx_%.bbappend" || echo 'SRC_URI:append = 
 touch "$UB/files/bsp.cfg"
 sed -i '/CONFIG_SYS_BOOTM_LEN/d' "$UB/files/bsp.cfg"
 echo "CONFIG_SYS_BOOTM_LEN=0x10000000" >> "$UB/files/bsp.cfg"
+
+# shared Yocto download + sstate cache, so other checkouts / git worktrees of
+# this repo reuse each other's build results (petalinuxbsp.conf is included
+# last by build/conf/local.conf, so it overrides the per-project defaults)
+PLNX_CACHE="${PLNX_CACHE:-$HOME/Xilinx/plnx-cache}"
+mkdir -p "$PLNX_CACHE/downloads" "$PLNX_CACHE/sstate-cache"
+BC="$MU/conf/petalinuxbsp.conf"
+sed -i '/^# lunaZCU111 shared cache/d; /^DL_DIR /d; /^SSTATE_DIR /d' "$BC"
+printf '# lunaZCU111 shared cache\nDL_DIR = "%s/downloads"\nSSTATE_DIR = "%s/sstate-cache"\n' \
+    "$PLNX_CACHE" "$PLNX_CACHE" >> "$BC"
 
 # rootfs packages
 UR="$MU/conf/user-rootfsconfig"
