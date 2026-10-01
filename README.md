@@ -31,7 +31,7 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 | `hw/scripts/export_bd_image.tcl` | exports the Vivado BD picture (GUI mode) |
 | `hw/constraints/zcu111.xdc` | PL reference clock and PL SYSREF pins |
 | `sw/server/` | `lunaserver` (C): clocks, RFDC/MTS, trigger IRQ, DMA, TCP |
-| `sw/client/` | Python client library and `luna-client` CLI stub (uv project) |
+| `sw/client/` | Python client library, `luna-client` CLI stub and `lunaGUI` (PyQt6) control panel/plots (uv project) |
 | `sw/petalinux/` | PetaLinux 2023.2 layer (device tree, kernel config, recipe) + `setup.sh` |
 | `docs/` | block diagram, register map, network protocol |
 | `refernces/` | TICS Pro clock files (as supplied); the ZCU111 user guide and schematic PDFs are not in git, see `refernces/README.md` |
