@@ -29,11 +29,17 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 **Spectrometer (branch `spectrometer`, in development):**
 - **Done:**
   - HDL, block design, server (`SPEC` commands, TCP 5002) and client (`luna-spec`);
-  - the server and client tested end to end in simulation mode.
-- **Not yet done:**
-  - spectrometer xsim run with the CSIRO cores (`hw/sim/run_sim.sh spec`);
-  - FPGA build and timing;
-  - testing on the board.
+  - the server and client tested end to end in simulation mode;
+  - xsim with the real CSIRO cores (`hw/sim/run_sim.sh spec`) passes:
+    - data test: test tones at +25 and −100 fine channels in subband 12 appear in fine channels 25 and 3996, with the expected 16:1 power ratio and about 50 dB to the neighbouring channels;
+    - restart test: shortening the integration part way through gives a clean integration about 6 spectra plus one integration later;
+  - the trigger simulations still pass, with the extra gearbox register stage;
+  - the FPGA build meets timing:
+    - WNS +0.003 ns (gearbox 491.52 → 245.76 MHz half-period transfer), WHS +0.010 ns;
+    - `clk_spec` domain +2.58 ns;
+    - PL SYSREF capture +0.75/+1.25 ns;
+  - utilisation: 9.3 % LUTs, 696 DSPs (16 %), 34/80 URAM, 44.5 BRAM. The CSIRO PFB alone is 646 DSPs.
+- **Not yet done:** testing on the board.
 
 ## Contents
 
@@ -177,6 +183,13 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 4. With no inputs, run `luna-client cmd "GET PEAKS"` to see the noise level. Set the thresholds a few times above it.
 5. Run `luna-client cmd SOFTTRIG`, then `luna-client watch`. You should get an event with src `soft`.
 6. Split one pulse (a few ns long) to all 8 inputs. The events should show the pulse at the same sample on every channel (MTS alignment) and at `trig_offset`. Check `N` and anti-coincidence with subsets of the channels.
+
+Spectrometer (bitstream with trigger-core VERSION 2.x):
+
+7. The server log should show `spec: spectrometer v1.0, 2 banks`. Then `luna-spec status` should show `present 1`, `enabled 1`, `subband 12`, `tint 6.000000`.
+8. Feed a CW tone into ADC 0 (RFMC_ADC_00), for example 1476.06 MHz: the centre of subband 12 (1474.56 MHz) + 1.5 MHz. `luna-spec watch` should show the peak at 1476.06 MHz every 6 s, and `luna-spec plot` should show it on the plot.
+9. `luna-spec set --subband 11`: the tone should disappear from the spectrum, or appear only near the subband edge. Change back with `--subband 12`.
+10. `luna-spec set --tint 0.1`: integrations should arrive every 0.1 s, with `lost 0` and `dropped 0`. Change back with `--tint 6 --save`.
 
 ## Troubleshooting and performance notes
 
