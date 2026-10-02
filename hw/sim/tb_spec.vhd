@@ -5,13 +5,17 @@
 -- df = fs/32/4096 = 30 kHz at fs = 3932.16 MS/s):
 --   A: subband 12 centre + 25 df   -> expect fine channel 25 of subband 12
 --   B: subband 12 centre - 100 df  -> expect fine channel 4096-100 = 3996
--- Steps (spec_writes.txt is checked by check_spec.py):
---   1. ACC_LEN = 1 (2 spectra), SUBBAND 12, ENABLE: wait for the first
---      integration, read it back over AXI-Lite, release the bank
---   2. ACC_LEN = 7, then 6 spectra later ACC_LEN = 0: the restart must reset
---      the accumulator (no overshoot), so a 1-spectrum integration must
---      arrive promptly and be flagged "first after restart"
---   3. one more integration (not flagged)
+-- spec_writes.txt / spec_events.txt are checked by check_spec.py.
+--
+-- TEST_MODE 0 (data): ACC_LEN = 1 (2 spectra), SUBBAND 12, ENABLE; two
+--   integrations are read back over AXI-Lite (the first is flagged "first
+--   after restart").
+-- TEST_MODE 1 (restart, run with NO_PFB = true for speed): ACC_LEN = 7, then
+--   ~1.5 spectra after the accumulator has re-synchronised, ACC_LEN = 0.  The
+--   restart must re-synchronise the accumulator again (otherwise its counter
+--   is already past the new length and no integration would come for days),
+--   so a 1-spectrum integration must arrive promptly, flagged "first", then
+--   another one not flagged.
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
@@ -20,6 +24,10 @@ use ieee.math_real.all;
 use std.env.all;
 
 entity tb_spec is
+  generic (
+    TEST_MODE : integer := 0;      -- 0 data, 1 restart
+    NO_PFB    : boolean := false
+  );
 end entity tb_spec;
 
 architecture sim of tb_spec is
@@ -101,7 +109,7 @@ begin
   end process;
 
   dut : entity work.spectrometer_top
-    generic map (SIM_DUMP => true)
+    generic map (SIM_DUMP => true, SIM_NO_PFB => NO_PFB)
     port map (
       clk_1x        => clk_1x,
       clk_spec      => clk_spec,
@@ -219,41 +227,45 @@ begin
     rd(16#004#, d);
     report "TB version " & integer'image(to_integer(unsigned(d)));
 
-    -- 1. first integration
-    wr(16#014#, 1);
     wr(16#010#, 12);
-    wr(16#008#, 16#101#);
-    wait_irq(200000, "step1");
-    rd(16#00C#, st);
-    bank := 0;
-    if st(4) = '1' then bank := 1; end if;
-    show_head(bank);
-    rd(16#10000# + bank * 16#8000# + 8 * 25, lo);
-    rd(16#10000# + bank * 16#8000# + 8 * 25 + 4, hi);
-    report "TB AXI bank " & integer'image(bank) & " bin 25 = 0x" & to_hstring(hi) & to_hstring(lo);
-    rd(16#10000# + bank * 16#8000# + 8 * 3996, lo);
-    rd(16#10000# + bank * 16#8000# + 8 * 3996 + 4, hi);
-    report "TB AXI bank " & integer'image(bank) & " bin 3996 = 0x" & to_hstring(hi) & to_hstring(lo);
-    release_all;
-
-    -- 2. long integration, then shorten it part way through
-    wr(16#014#, 7);
-    for i in 1 to 6 * NFFT loop
-      wait until rising_edge(clk_spec);
-    end loop;
-    release_all;
-    wr(16#014#, 0);
-    wait_irq(60000, "step2 after shortening");
-    rd(16#00C#, st);
-    bank := 0;
-    if st(4) = '1' then bank := 1; end if;
-    show_head(bank);
-    release_all;
-
-    -- 3. next integration
-    wait_irq(60000, "step3");
-    show_head(bank);
-    release_all;
+    if TEST_MODE = 0 then
+      -- data: two integrations of 2 spectra
+      wr(16#014#, 1);
+      wr(16#008#, 16#101#);
+      for i in 1 to 2 loop
+        wait_irq(80000, "data");
+        rd(16#00C#, st);
+        bank := 0;
+        if st(4) = '1' then bank := 1; end if;
+        show_head(bank);
+        rd(16#10000# + bank * 16#8000# + 8 * 25, lo);
+        rd(16#10000# + bank * 16#8000# + 8 * 25 + 4, hi);
+        report "TB AXI bank " & integer'image(bank) & " bin 25 = 0x" & to_hstring(hi) & to_hstring(lo);
+        rd(16#10000# + bank * 16#8000# + 8 * 3996, lo);
+        rd(16#10000# + bank * 16#8000# + 8 * 3996 + 4, hi);
+        report "TB AXI bank " & integer'image(bank) & " bin 3996 = 0x" & to_hstring(hi) & to_hstring(lo);
+        release_all;
+      end loop;
+    else
+      -- restart: 8-spectrum integration, shortened to 1 spectrum part way
+      -- through (the accumulator re-synchronises ~5.04 spectra after the
+      -- start; 30000 cycles is ~2.3 spectra after that)
+      wr(16#014#, 7);
+      wr(16#008#, 16#101#);
+      for i in 1 to 30000 loop
+        wait until rising_edge(clk_spec);
+      end loop;
+      rd(16#00C#, st);
+      assert st(1 downto 0) = "00"
+        report "TB FAIL: integration stored before the 8-spectrum length" severity failure;
+      wr(16#014#, 0);
+      wait_irq(45000, "restart after shortening");
+      show_head(0);
+      release_all;
+      wait_irq(10000, "restart next");
+      show_head(0);
+      release_all;
+    end if;
 
     rd(16#01C#, d);
     report "TB spec_count=" & integer'image(to_integer(unsigned(d)));

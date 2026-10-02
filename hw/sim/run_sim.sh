@@ -2,7 +2,7 @@
 # Run the VHDL unit simulations (Vivado xsim) and compare against the golden
 # models.  Usage:  hw/sim/run_sim.sh [trig|cap|all|spec|full]   (all = trig+cap)
 #   spec : spectrometer with the CSIRO PFB/DFB cores (needs refernces/PFB,
-#          runs Vivado in project mode, ~20-40 min);  full = all + spec
+#          runs Vivado in project mode, several hours: the PFB model is slow);  full = all + spec
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HDL="$HERE/../hdl"
@@ -56,10 +56,18 @@ fi
 
 if [[ "$WHAT" == spec || "$WHAT" == full ]]; then
   if [[ -d "$HERE/../../refernces/PFB" || -n "${LUNA_PFB_IP:-}" ]]; then
-    vivado -mode batch -nojournal -log sim_spec.log -source "$HERE/sim_spec.tcl" \
-      > sim_spec.stdout 2>&1 || { tail -40 sim_spec.stdout; exit 1; }
-    grep -E "TB |Failure|FAIL" sim_spec.stdout || true
-    python3 "$HERE/check_spec.py" spec_sim/spec_sim.sim/sim_1/behav/xsim/spec_writes.txt || fail=1
+    # two Vivado/xsim runs in parallel: data (full chain) and restart (no PFB)
+    for t in data restart; do
+      SPEC_TEST=$t vivado -mode batch -nojournal -log "sim_spec_$t.log" \
+        -source "$HERE/sim_spec.tcl" > "sim_spec_$t.stdout" 2>&1 &
+    done
+    wait || true
+    for t in data restart; do
+      echo "== spectrometer $t test"
+      grep -E "TB |Failure|ERROR" "sim_spec_$t.stdout" || true
+      python3 "$HERE/check_spec.py" --mode "$t" \
+        "spec_sim_$t/spec_sim.sim/sim_1/behav/xsim/spec_writes.txt" || fail=1
+    done
   else
     echo "spec: skipped (refernces/PFB with the CSIRO cores not present)"
   fi

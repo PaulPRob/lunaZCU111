@@ -158,7 +158,7 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 - **Subband select:** a mux picks one subband (SUBBAND register, default 12 = 1474.56 MHz), and `rnd_23_18` rounds it from 23 to 18 bits.
 - **Fine filter bank:** `dfb4096x1c`, 4096 channels of 30 kHz, with power and accumulation over ACC_LEN + 1 spectra of 33.33 µs. The default is 180000 spectra = 6.000 s.
 - **Storage:** each integration is written to one of 2 banks of 4096 × 64 bit in UltraRAM. An interrupt (SPI 92) tells `lunaserver`, which reads the bank over AXI-Lite (about 3 ms) and sends it to every client on TCP 5002.
-- **Control:** enable/disable, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`). Any change restarts the integration immediately, and the next integration is flagged "first after restart".
+- **Control:** enable/disable, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`). Any change restarts the integration immediately. The FPGA discards the filter bank's output until it has re-synchronised (about 6 spectra), so the first integration after a change is clean; it is flagged "first after restart" for information.
 - **The CSIRO cores are not in this repository:**
   - They live in `refernces/PFB/` (gitignored), from System Generator 2018.2.
   - `hw/scripts/spec_ip.tcl` creates them as IP-catalog instances, and the build stops with a clear message if the folder is missing.

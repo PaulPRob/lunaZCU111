@@ -114,7 +114,8 @@ class Spectrum:
     n_spectra: int             # spectra accumulated
     subband: int               # coarse channel 0..16
     first: bool                # first integration after a restart (enable,
-                               # subband or integration-time change)
+                               # subband or integration-time change); its data
+                               # are all from after the change
     simulated: bool
     lost: int                  # integrations lost in the FPGA so far (banks full)
     dropped: int               # frames the server dropped for this client

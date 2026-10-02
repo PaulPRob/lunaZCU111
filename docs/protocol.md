@@ -67,7 +67,7 @@ u64 power[4096]            accumulated power per fine channel, FFT order
 
 - **Channel frequencies:** channel k is at `subband × 122.88 MHz + k × 30 kHz` for k < 2048, and at `subband × 122.88 MHz + (k − 4096) × 30 kHz` for k ≥ 2048. In numpy this is `np.fft.fftfreq(4096) * 122.88e6`, and `np.fft.fftshift` puts the channels in frequency order.
 - **Mean power:** `power / n_spectra` is the mean power per spectrum, in arbitrary units.
-- **Restarts:** enabling the spectrometer, `SPEC RESTART`, or changing the subband or integration time restarts the integration immediately. The next integration has flag bit 1 set; drop it if a few spectra of filter history from before the change matter.
+- **Restarts:** enabling the spectrometer, `SPEC RESTART`, or changing the subband or integration time restarts the integration immediately. The FPGA discards everything until the filter bank has settled (about 6 spectra, 0.2 ms), so the first integration you receive after a change contains only data taken after it. That integration has flag bit 1 set, for information.
 - **Lost integrations:** the FPGA holds two finished integrations. The server reads each one in about 3 ms. Integrations shorter than about 50 ms can therefore be lost, and they are counted in `lost`.
 
 ## Control port (5001)

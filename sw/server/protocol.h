@@ -55,7 +55,8 @@
 #define LUNA_SPEC_F_SIM    (1u << 0)      /* simulated data                  */
 #define LUNA_SPEC_F_FIRST  (1u << 1)      /* first integration after a
                                              restart (enable, SUBBAND or
-                                             integration time change)       */
+                                             integration time change); its
+                                             data are all from after it     */
 
 struct luna_frame_hdr {
     uint32_t magic;           /* LUNA_FRAME_MAGIC                            */

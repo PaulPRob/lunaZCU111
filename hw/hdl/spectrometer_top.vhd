@@ -19,9 +19,14 @@
 --
 -- dfb4096x1c restarts its filter, FFT framing and accumulator on a rising
 -- edge of its 'valid' input.  ENABLE, RESTART and writes to SUBBAND/ACC_LEN
--- hold 'valid' low for a few cycles so the next integration starts cleanly;
--- that integration is flagged "first after restart" (its first spectra still
--- contain filter taps from before the restart).
+-- hold 'valid' low for a few cycles, then raise it.  The accumulator is
+-- re-synchronised only when the FFT output restarts, ~5.04 spectra later
+-- (filter taps + FFT latency, measured in tb_spec); until then it keeps
+-- emitting integrations on its old schedule, which may be empty, mixed or cut
+-- short by the re-sync.  So after every (re)start the outputs that begin
+-- within SETTLE_SPECTRA spectra are ignored, and an integration is stored
+-- only if all 4096 channels were written.  The first integration stored
+-- after a restart is flagged "first after restart".
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
@@ -33,7 +38,9 @@ use ieee.std_logic_textio.all;
 
 entity spectrometer_top is
   generic (
-    SIM_DUMP : boolean := false     -- simulation only: log memory writes
+    SIM_DUMP   : boolean := false;  -- simulation only: log memory writes
+    SIM_NO_PFB : boolean := false   -- simulation only: replace the (slow)
+                                    -- PFB model by zeros
   );
   port (
     clk_1x        : in  std_logic;  -- 245.76 MHz
@@ -144,6 +151,9 @@ architecture rtl of spectrometer_top is
 
   constant RND_LAT     : integer := 2;      -- rnd_23_18 latency
   constant RESTART_LEN : integer := 32;     -- clk_spec cycles 'valid' is held low
+  constant NFINE       : integer := 4096;   -- fine channels = cycles per spectrum
+  constant SETTLE_SPECTRA : integer := 6;   -- ignore outputs this long after a start
+  constant SETTLE_CYC  : integer := SETTLE_SPECTRA * NFINE;
 
   type s12_arr_t is array (0 to 31) of std_logic_vector(11 downto 0);
   type s23_arr_t is array (0 to 16) of std_logic_vector(22 downto 0);
@@ -169,6 +179,9 @@ architecture rtl of spectrometer_top is
 
   -- fine filter bank
   signal dfb_valid : std_logic := '0';
+  signal settle    : integer range 0 to SETTLE_CYC := SETTLE_CYC;
+  signal start_ok  : std_logic;
+  signal wcnt      : integer range 0 to NFINE := 0;
   signal dfb_new   : std_logic;
   signal dfb_data  : std_logic_vector(63 downto 0);
   signal dfb_addr  : std_logic_vector(11 downto 0);
@@ -191,7 +204,7 @@ architecture rtl of spectrometer_top is
   signal head      : std_logic := '0';
   signal tail      : std_logic := '0';
   signal writing   : std_logic := '0';
-  signal in_stream : std_logic := '0';
+  signal sof, commit : std_logic;
   signal b_seq    : u32_bank_t := (others => (others => '0'));
   signal b_acc     : u32_bank_t := (others => (others => '0'));
   signal b_ts      : u64_bank_t := (others => (others => '0'));
@@ -251,6 +264,13 @@ begin
     pin(i) <= pfb_word(16*i+15 downto 16*i+4);
   end generate;
 
+  g_nopfb : if SIM_NO_PFB generate
+    ore      <= (others => (others => '0'));
+    oim      <= (others => (others => '0'));
+    pfb_vout <= pfb_vin;
+  end generate;
+
+  g_pfb : if not SIM_NO_PFB generate
   u_pfb : pfb32x16t_0
     port map (
       in0  => pin(0),  in1  => pin(1),  in2  => pin(2),  in3  => pin(3),
@@ -282,6 +302,7 @@ begin
       out16re => ore(16), out16im => oim(16),
       valid_out => pfb_vout
     );
+  end generate;
 
   -----------------------------------------------------------------------------
   -- subband select: channels 0 (DC) and 16 (Nyquist) are real
@@ -334,6 +355,13 @@ begin
       else
         dfb_valid <= '0';
       end if;
+
+      -- outputs of the fine filter bank are valid SETTLE_CYC after 'valid' rose
+      if dfb_valid = '0' then
+        settle <= SETTLE_CYC;
+      elsif settle /= 0 then
+        settle <= settle - 1;
+      end if;
     end if;
   end process;
 
@@ -350,9 +378,17 @@ begin
     );
 
   -----------------------------------------------------------------------------
-  -- store each integration (new_acc_out high for one spectrum, channels in
-  -- order, vacc_ram_addr = channel) in the next free bank
+  -- store each integration in the next free bank.  While new_acc_out is high
+  -- the DFB streams one spectrum per 4096 cycles with vacc_ram_addr = channel
+  -- 0..4095 (for ACC_LEN = 0 new_acc_out stays high and the spectra follow
+  -- each other), so spectra are framed by the channel number: a spectrum is
+  -- stored only if channels 0..4095 all arrived in order.
   -----------------------------------------------------------------------------
+  sof    <= '1' when dfb_new = '1' and unsigned(dfb_addr) = 0 else '0';
+  commit <= '1' when restart_cnt = 0 and writing = '1' and dfb_new = '1' and
+                     unsigned(dfb_addr) = NFINE - 1 and wcnt = NFINE - 1
+            else '0';
+
   process (clk_spec)
     variable n    : unsigned(1 downto 0);
     variable t    : integer range 0 to 1;
@@ -372,36 +408,38 @@ begin
       flg(12 downto 8) := std_logic_vector(cfg_subband);
 
       if restart_cnt /= 0 then
-        -- a restart discards the integration being written; an output
-        -- spectrum already in progress is ignored (no start seen)
-        writing   <= '0';
-        in_stream <= '0';
-        first     <= '1';
-      elsif dfb_new = '1' and new_d = '0' then
-        -- start of an output spectrum
-        in_stream <= '1';
-        if cfg_enable = '1' and nfull /= 2 then
+        -- a restart discards the integration being written
+        writing <= '0';
+        first   <= '1';
+      elsif sof = '1' then
+        -- channel 0 of an output spectrum
+        wcnt <= 1;
+        if start_ok = '1' then
           writing <= '1';
         else
           writing <= '0';
-          if cfg_enable = '1' then
+          if cfg_enable = '1' and settle = 0 and dfb_valid = '1' and nfull = 2 then
             cnt_lost <= cnt_lost + 1;
           end if;
         end if;
-      elsif dfb_new = '0' and new_d = '1' and in_stream = '1' then
-        -- end of an output spectrum
-        if writing = '1' then
-          b_seq(t)   <= seq;
-          b_acc(t)   <= cfg_acc_len;
-          b_ts(t)    <= ts_s;
-          b_flags(t) <= flg;
-          seq  <= seq + 1;
-          tail <= not tail;
-          n    := n + 1;
+      elsif commit = '1' then
+        -- channel 4095 written: the integration is complete
+        b_seq(t)   <= seq;
+        b_acc(t)   <= cfg_acc_len;
+        b_ts(t)    <= ts_s;
+        b_flags(t) <= flg;
+        seq     <= seq + 1;
+        tail    <= not tail;
+        n       := n + 1;
+        first   <= '0';
+        writing <= '0';
+      elsif writing = '1' and dfb_new = '1' then
+        if wcnt /= NFINE - 1 then
+          wcnt <= wcnt + 1;
         end if;
-        writing   <= '0';
-        in_stream <= '0';
-        first     <= '0';
+      else
+        -- stream cut short (accumulator re-synchronised) or not writing
+        writing <= '0';
       end if;
 
       if rel then
@@ -414,9 +452,8 @@ begin
         cnt_lost <= (others => '0');
       end if;
       if rst = '1' then
-        writing   <= '0';
-        in_stream <= '0';
-        nfull     <= "00";
+        writing <= '0';
+        nfull   <= "00";
         head    <= '0';
         tail    <= '0';
         first   <= '1';
@@ -430,11 +467,13 @@ begin
     end if;
   end process;
 
-  -- 'writing' is registered at the start of the stream, so the first word
-  -- (channel 0) uses the start condition directly
+  -- channel 0 of a spectrum that will be stored
+  start_ok  <= '1' when sof = '1' and restart_cnt = 0 and settle = 0 and
+                        dfb_valid = '1' and cfg_enable = '1' and nfull /= 2
+               else '0';
+  -- 'writing' is registered, so channel 0 uses start_ok directly
   mem_we    <= '1' when dfb_new = '1' and restart_cnt = 0 and
-                        (writing = '1' or
-                         (new_d = '0' and cfg_enable = '1' and nfull /= 2))
+                        (writing = '1' or start_ok = '1')
                else '0';
   mem_waddr <= tail & unsigned(dfb_addr);
 
@@ -507,6 +546,46 @@ begin
   -----------------------------------------------------------------------------
   -- pragma translate_off
   g_dump : if SIM_DUMP generate
+    -- handshake transitions, with the clk_spec cycle number
+    process (clk_spec)
+      file f        : text open write_mode is "spec_events.txt";
+      variable l    : line;
+      variable cyc  : integer := 0;
+      variable pv, dv, nv : std_logic := '0';
+      variable seen_pfb, seen_fin : boolean := false;
+      variable nz   : integer := 0;
+      procedure ev(s : string; v : std_logic) is
+      begin
+        write(l, cyc); write(l, string'(" ")); write(l, s);
+        write(l, string'(" ")); write(l, v);
+        writeline(f, l);
+      end procedure;
+    begin
+      if rising_edge(clk_spec) then
+        cyc := cyc + 1;
+        if pfb_vout(0) /= pv then pv := pfb_vout(0); ev("pfb_valid_out", pv); end if;
+        if dfb_valid /= dv then dv := dfb_valid; ev("dfb_valid", dv); end if;
+        if dfb_new /= nv then
+          nv := dfb_new;
+          ev("new_acc_out", nv);
+          if nv = '0' then
+            write(l, cyc); write(l, string'(" nonzero_words ")); write(l, nz);
+            writeline(f, l);
+          end if;
+          nz := 0;
+        end if;
+        if dfb_new = '1' and unsigned(dfb_data) /= 0 then
+          nz := nz + 1;
+        end if;
+        if not seen_pfb and unsigned(ore(12)) /= 0 then
+          seen_pfb := true; ev("pfb_out12_nonzero", '1');
+        end if;
+        if not seen_fin and unsigned(fin_re) /= 0 then
+          seen_fin := true; ev("dfb_in_nonzero", '1');
+        end if;
+      end if;
+    end process;
+
     process (clk_spec)
       file f     : text open write_mode is "spec_writes.txt";
       variable l : line;
@@ -521,8 +600,7 @@ begin
           hwrite(l, dfb_data);
           writeline(f, l);
         end if;
-        if restart_cnt = 0 and dfb_new = '0' and new_d = '1' and in_stream = '1'
-           and writing = '1' then
+        if commit = '1' then
           write(l, string'("C "));
           write(l, to_integer(seq));
           write(l, string'(" "));

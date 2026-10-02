@@ -101,7 +101,8 @@ Integrating spectrometer on ADC channel 0 (`hw/hdl/spectrometer_top.vhd`):
 
 **Restarts:**
 - **What causes one:** ENABLE 0→1, RESTART, or a write to SUBBAND or ACC_LEN. The fine filter bank is resynchronised and its accumulator restarts from zero. An integration that was being written is discarded.
-- **The first integration after a restart** is flagged in HEAD_FLAGS. Its first few spectra still contain filter-tap history from before the restart, which is negligible except for very short integrations.
+- **Settling after a restart:** the fine filter bank re-synchronises its accumulator about 5 spectra (170 µs) after a restart, when the FFT output restarts. Until then it keeps producing integrations on its old schedule, which may be empty, mixed or cut short. The wrapper ignores every output that begins within 6 spectra of the (re)start, and stores an integration only if all 4096 channels arrived. The first integration stored after a restart therefore contains only data from after the change; it is flagged in HEAD_FLAGS for information.
+- **Delay before the first integration:** about 6 spectra (0.2 ms) plus the integration time.
 
 **Fine channel order:**
 - Channels are in FFT order. Channel k is at the subband centre + k × 30 kHz for k < 2048, and at the centre + (k − 4096) × 30 kHz for k ≥ 2048.
