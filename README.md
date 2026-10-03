@@ -2,7 +2,7 @@
 
 This design uses the ZCU111 (XCZU28DR RFSoC) to digitise 8 RF inputs at **3932.16 MSPS** (ADC PLLs referenced to 245.76 MHz, multi-tile synchronised). The PL checks every sample on every channel against its own programmable threshold. The trigger is either **N-of-8 coincidence** or **anti-coincidence** within a sample-exact window (default 64 samples). When it fires, **16384 samples** (programmable down to 4096) are captured on all 8 channels at the same time, with the trigger in the middle of the buffer. A server on the PS (Linux) gets an interrupt, reads each event by DMA and streams it over 1 GbE to clients. Thresholds and the rest of the configuration are set over the same link.
 
-ADC channel 0 also feeds an **integrating spectrometer**:
+Any one of the 8 ADC channels (selectable, default 0) also feeds an **integrating spectrometer**:
 - a 16-channel polyphase filter bank splits it into 17 coarse subbands of 122.88 MHz;
 - a selectable subband goes to a 4096-channel filter bank with 30 kHz channels;
 - the power is integrated, 6.000 s by default;
@@ -28,17 +28,18 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 
 **Spectrometer (branch `spectrometer`, in development):**
 - **Done:**
-  - HDL, block design, server (`SPEC` commands, TCP 5002) and client (`luna-spec`);
-  - the server and client tested end to end in simulation mode;
+  - HDL, block design, server (`SPEC` commands, TCP 5002), client (`luna-spec`) and lunaGUI (spectrometer panel and spectrum window);
+  - input select: any of the 8 ADCs can feed the spectrometer (`SET SPEC_INPUT`, spectrometer v1.1);
+  - the server, client and lunaGUI tested end to end in simulation mode;
   - xsim with the real CSIRO cores (`hw/sim/run_sim.sh spec`) passes:
-    - data test: test tones at +25 and −100 fine channels in subband 12 appear in fine channels 25 and 3996, with the expected 16:1 power ratio and about 50 dB to the neighbouring channels;
+    - data test: with INPUT = 5, test tones on ADC 5 at +25 and −100 fine channels in subband 12 appear in fine channels 25 and 3996, with the expected 16:1 power ratio and about 50 dB to the neighbouring channels; a decoy tone on another ADC does not appear;
     - restart test: shortening the integration part way through gives a clean integration about 6 spectra plus one integration later;
   - the trigger simulations still pass, with the extra gearbox register stage;
   - the FPGA build meets timing:
-    - WNS +0.003 ns (gearbox 491.52 → 245.76 MHz half-period transfer), WHS +0.010 ns;
-    - `clk_spec` domain +2.58 ns;
-    - PL SYSREF capture +0.75/+1.25 ns;
-  - utilisation: 9.3 % LUTs, 696 DSPs (16 %), 34/80 URAM, 44.5 BRAM. The CSIRO PFB alone is 646 DSPs.
+    - WNS +0.013 ns (gearbox 491.52 → 245.76 MHz half-period transfer), WHS +0.010 ns;
+    - `clk_spec` domain +2.05 ns;
+    - PL SYSREF capture +0.75 ns;
+  - utilisation: 9.4 % LUTs, 696 DSPs (16 %), 34/80 URAM, 44.5 BRAM. The CSIRO PFB alone is 646 DSPs; the input selector adds about 500 LUTs and 2100 registers.
 - **Not yet done:** testing on the board.
 
 ## Contents
@@ -98,7 +99,7 @@ uv run luna-client status
 uv run luna-client set --thresh 8000 --mode coinc --n 2 --window 64 --mask 0xff --len 16384 --save
 uv run luna-client record -o data/        # saves events as .npz
 uv run luna-spec status
-uv run luna-spec set --subband 12 --tint 6 --on --save
+uv run luna-spec set --input 0 --subband 12 --tint 6 --on --save
 uv run luna-spec record -o spectra/ --skip-first   # one .npz per integration
 uv run --extra plot luna-spec plot                 # live spectrum plot
 ```
@@ -158,13 +159,14 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 - Network sending is asynchronous, with a per-client queue. A slow client loses frames; the capture is never blocked.
 - One 16384-sample event is 256 KiB, so 1 GbE carries about 400 events/s.
 
-**Spectrometer** (`hw/hdl/spectrometer_top.vhd`, ADC channel 0):
-- **Clock:** a third MMCM output, `clk_spec` 122.88 MHz, phase-aligned with `clk_1x`. The trigger core passes channel 0's 16-sample words (`spec_word`) and its sample counter (`spec_ts`) to the spectrometer. A 2:1 gearbox makes 32 samples per `clk_spec` cycle.
+**Spectrometer** (`hw/hdl/spectrometer_top.vhd`, one ADC channel):
+- **Input select:** the trigger core passes all 8 channels' 16-sample words (`spec_words`) and its sample counter (`spec_ts`) to the spectrometer. The INPUT register (`SET SPEC_INPUT`, default 0) picks one with a pipelined 8:1 mux at 245.76 MHz: one register per channel, then 4:1, then 2:1.
+- **Clock:** a third MMCM output, `clk_spec` 122.88 MHz, phase-aligned with `clk_1x`. A 2:1 gearbox makes 32 samples per `clk_spec` cycle.
 - **Coarse filter bank:** `pfb32x16t`, 32 real samples in, 17 complex subbands out. Subband k is 122.88 MHz wide and centred on k × 122.88 MHz. Subbands 0 and 16 are real.
 - **Subband select:** a mux picks one subband (SUBBAND register, default 12 = 1474.56 MHz), and `rnd_23_18` rounds it from 23 to 18 bits.
 - **Fine filter bank:** `dfb4096x1c`, 4096 channels of 30 kHz, with power and accumulation over ACC_LEN + 1 spectra of 33.33 µs. The default is 180000 spectra = 6.000 s.
 - **Storage:** each integration is written to one of 2 banks of 4096 × 64 bit in UltraRAM. An interrupt (SPI 92) tells `lunaserver`, which reads the bank over AXI-Lite (about 3 ms) and sends it to every client on TCP 5002.
-- **Control:** enable/disable, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`). Any change restarts the integration immediately. The FPGA discards the filter bank's output until it has re-synchronised (about 6 spectra), so the first integration after a change is clean; it is flagged "first after restart" for information.
+- **Control:** enable/disable, input, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_INPUT`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`), or from lunaGUI. Any change restarts the integration immediately. The FPGA discards the filter bank's output until it has re-synchronised (about 6 spectra), so the first integration after a change is clean; it is flagged "first after restart" for information.
 - **The CSIRO cores are not in this repository:**
   - They live in `refernces/PFB/` (gitignored), from System Generator 2018.2.
   - `hw/scripts/spec_ip.tcl` creates them as IP-catalog instances, and the build stops with a clear message if the folder is missing.
@@ -186,10 +188,11 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 
 Spectrometer (bitstream with trigger-core VERSION 2.x):
 
-7. The server log should show `spec: spectrometer v1.0, 2 banks`. Then `luna-spec status` should show `present 1`, `enabled 1`, `subband 12`, `tint 6.000000`.
+7. The server log should show `spec: spectrometer v1.1, 2 banks`. Then `luna-spec status` should show `present 1`, `enabled 1`, `input 0`, `subband 12`, `tint 6.000000`.
 8. Feed a CW tone into ADC 0 (RFMC_ADC_00), for example 1476.06 MHz: the centre of subband 12 (1474.56 MHz) + 1.5 MHz. `luna-spec watch` should show the peak at 1476.06 MHz every 6 s, and `luna-spec plot` should show it on the plot.
 9. `luna-spec set --subband 11`: the tone should disappear from the spectrum, or appear only near the subband edge. Change back with `--subband 12`.
 10. `luna-spec set --tint 0.1`: integrations should arrive every 0.1 s, with `lost 0` and `dropped 0`. Change back with `--tint 6 --save`.
+11. Move the tone to another input, for example ADC 5, then `luna-spec set --input 5`: the tone should appear again, and `luna-spec watch` should show `ADC 5`. With `--input 0` it should be gone. lunaGUI's *Spectrometer* panel and spectrum window should show the same.
 
 ## Troubleshooting and performance notes
 

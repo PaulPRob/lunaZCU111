@@ -89,6 +89,10 @@ class Control:
     def spec_restart(self):
         return self.command("SPEC RESTART")
 
+    def set_spec_input(self, adc: int):
+        """ADC channel 0..7 feeding the spectrometer (restarts the integration)."""
+        return self.command(f"SET SPEC_INPUT {int(adc)}")
+
     def set_spec_subband(self, subband: int):
         """Coarse channel 0..16 (centre subband*122.88 MHz) for the fine spectrum."""
         return self.command(f"SET SPEC_SUBBAND {int(subband)}")

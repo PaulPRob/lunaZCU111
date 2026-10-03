@@ -1,4 +1,4 @@
-/* spec.h - integrating spectrometer on ADC channel 0 (hw/hdl/spectrometer_top.vhd) */
+/* spec.h - integrating spectrometer on a selectable ADC channel (hw/hdl/spectrometer_top.vhd) */
 #ifndef SPEC_H
 #define SPEC_H
 
@@ -25,14 +25,16 @@ struct spec_status {
  * touching a missing AXI slave would hang the bus).  Returns 0 if present.
  */
 int  spec_init(struct pl *p);
-/* enable / subband / integration length; SUBBAND and ACC_LEN are only
- * written when they change (a write restarts the integration) */
+/* enable / input / subband / integration length; INPUT, SUBBAND and ACC_LEN
+ * are only written when they change (a write restarts the integration) */
 void spec_apply(struct pl *p, const struct luna_config *c);
 void spec_restart(struct pl *p);
 void spec_get_status(struct pl *p, struct spec_status *s);
+/* the bitstream's spectrometer has the INPUT register (v1.1+) */
+int  spec_has_input(const struct pl *p);
 /*
  * Read the oldest stored integration: fill the FPGA fields of 'h' (seq,
- * n_spectra, subband, flags FIRST, end_sample, lost, restarts) and
+ * n_spectra, subband, adc_input, flags FIRST, end_sample, lost, restarts) and
  * power[LUNA_SPEC_NCHAN], then free the bank.
  * Returns 1 if a spectrum was read, 0 if none is waiting.
  */

@@ -1,13 +1,14 @@
-"""luna-spec : spectrometer client for lunaserver (ADC channel 0).
+"""luna-spec : spectrometer client for lunaserver.
 
-The FPGA splits ADC channel 0 into 17 coarse channels ("subbands") of
+The FPGA takes one ADC channel (0-7, SET SPEC_INPUT), splits it into 17
+coarse channels ("subbands") of
 122.88 MHz (subband k is centred on k * 122.88 MHz), passes one of them to a
 4096-channel filter bank (30 kHz channels) and integrates the power.  Each
 integration arrives on TCP 5002.
 
 examples
   luna-spec status
-  luna-spec set --subband 12 --tint 6 --on --save
+  luna-spec set --input 0 --subband 12 --tint 6 --on --save
   luna-spec watch                          # one line per integration
   luna-spec record -o spectra/ --skip-first
   luna-spec plot                           # live plot (needs matplotlib)
@@ -28,7 +29,7 @@ from .protocol import CTRL_PORT, FINE_HZ, SPEC_PORT, Spectrum, SpectrumStream
 def describe(s: Spectrum) -> str:
     f, p = s.ordered()
     k = int(np.argmax(p))
-    return (f"seq {s.seq:6d}  subband {s.subband:2d} ({s.centre_hz / 1e6:8.2f} MHz)  "
+    return (f"seq {s.seq:6d}  ADC {s.adc_input}  subband {s.subband:2d} ({s.centre_hz / 1e6:8.2f} MHz)  "
             f"tint {s.tint_s:8.3f} s  mean {p.mean():11.4e}  peak {p[k]:11.4e} @ {f[k] / 1e6:10.4f} MHz"
             f"  lost {s.lost}  dropped {s.dropped}"
             + ("  [first after restart]" if s.first else "")
@@ -44,7 +45,8 @@ def save_spectrum(s: Spectrum, outdir: str) -> str:
     """
     fn = os.path.join(outdir, f"spec_{s.host_time_ns}_{s.seq:08d}.npz")
     np.savez(fn, power=s.power, freqs_hz=s.freqs_hz(), seq=s.seq, n_spectra=s.n_spectra,
-             subband=s.subband, centre_hz=s.centre_hz, fine_hz=FINE_HZ, tint_s=s.tint_s,
+             subband=s.subband, adc_input=s.adc_input, centre_hz=s.centre_hz, fine_hz=FINE_HZ,
+             tint_s=s.tint_s,
              first=s.first, simulated=s.simulated, end_sample=s.end_sample,
              host_time_ns=s.host_time_ns, sample_rate_hz=s.sample_rate_hz, lost=s.lost,
              restarts=s.restarts)
@@ -74,7 +76,7 @@ def live_plot(stream: SpectrumStream, count: int) -> int:
             line.set_ydata(db)
             ax.relim()
             ax.autoscale_view()
-        ax.set_title(f"ADC 0, subband {s.subband} ({s.centre_hz / 1e6:.2f} MHz), "
+        ax.set_title(f"ADC {s.adc_input}, subband {s.subband} ({s.centre_hz / 1e6:.2f} MHz), "
                      f"seq {s.seq}, {s.tint_s:.3f} s" + ("  (first after restart)" if s.first else ""))
         fig.canvas.draw_idle()
         plt.pause(0.01)
@@ -96,6 +98,7 @@ def main(argv=None) -> int:
 
     sub.add_parser("status", help="print the spectrometer settings and counters")
     s = sub.add_parser("set", help="configure the spectrometer")
+    s.add_argument("--input", type=int, help="ADC channel 0-7 feeding the spectrometer")
     s.add_argument("--subband", type=int, help="coarse channel 0-16 (centre = k * 122.88 MHz)")
     g = s.add_mutually_exclusive_group()
     g.add_argument("--tint", type=float, help="integration time in seconds (default 6)")
@@ -119,6 +122,8 @@ def main(argv=None) -> int:
     if args.action in ("status", "set"):
         with Control(args.host, args.ctrl_port) as ctl:
             if args.action == "set":
+                if args.input is not None:
+                    ctl.set_spec_input(args.input)
                 if args.subband is not None:
                     ctl.set_spec_subband(args.subband)
                 if args.tint is not None:

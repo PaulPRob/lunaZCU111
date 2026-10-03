@@ -99,9 +99,9 @@ void sim_make_spectrum(const struct luna_config *c, uint64_t *power)
 {
     /* noise with a coarse-channel passband shape (flat to +-40 MHz, rolling
      * off towards the +-61.44 MHz edges) plus a tone whose fine channel
-     * depends on the subband, so a subband change is visible */
+     * depends on the subband and input, so a change is visible */
     const double n = (double)c->spec_nspec;
-    const int tone = 300 + 50 * c->spec_subband;
+    const int tone = 300 + 50 * c->spec_subband + 20 * c->spec_input;
     for (int k = 0; k < LUNA_SPEC_NCHAN; k++) {
         int f = k < LUNA_SPEC_NCHAN / 2 ? k : k - LUNA_SPEC_NCHAN;   /* -2048..2047 */
         double x = abs(f) / (LUNA_SPEC_NCHAN / 2.0);                 /* 0..1 */

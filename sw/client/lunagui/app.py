@@ -22,6 +22,8 @@ def main() -> int:
     w.show()
     if "--plots" in sys.argv:
         w._open_plots()
+    if "--spectrum" in sys.argv:
+        w._open_spectrum()
     if "--connect" in sys.argv:
         w._toggle_connect()
     return app.exec()

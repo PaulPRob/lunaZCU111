@@ -18,9 +18,11 @@
 --   0x020 LOST_COUNT  RO  integrations lost (both banks full)
 --   0x024 RESTARTS    RO  integration restarts
 --   0x028 SCRATCH     RW
+--   0x02C INPUT       RW  ADC channel 0..7 feeding the filter banks (0);
+--                         a write restarts the integration
 --   0x030 HEAD_SEQ    RO  oldest full bank: sequence number
 --   0x034 HEAD_FLAGS  RO  oldest full bank: bit0 first after restart,
---                         [12:8] subband
+--                         [12:8] subband, [18:16] input ADC channel
 --   0x038 HEAD_ACCLEN RO  oldest full bank: ACC_LEN used
 --   0x03C HEAD_TS_LO  RO  oldest full bank: sample counter at the end of
 --   0x040 HEAD_TS_HI      the integration (trigger-core time base)
@@ -57,6 +59,7 @@ entity spec_regs_axil is
     cfg_irq_en    : out std_logic;
     cfg_subband   : out unsigned(4 downto 0);
     cfg_acc_len   : out unsigned(31 downto 0);
+    cfg_input     : out unsigned(2 downto 0);
     -- pulses
     p_restart     : out std_logic;
     p_release     : out std_logic;
@@ -87,6 +90,7 @@ architecture rtl of spec_regs_axil is
   signal r_subband : unsigned(4 downto 0)  := to_unsigned(12, 5);
   signal r_acc_len : unsigned(31 downto 0) := to_unsigned(ACC_LEN_DEFAULT, 32);
   signal r_scratch : std_logic_vector(31 downto 0) := (others => '0');
+  signal r_input   : unsigned(2 downto 0)  := (others => '0');
 
   -- AXI handshake state
   signal aw_ok, w_ok : std_logic := '0';
@@ -158,6 +162,9 @@ begin
               p_release <= w_data(0);
             when 16#028#/4 =>
               r_scratch <= w_data;
+            when 16#02C#/4 =>
+              r_input   <= v(2 downto 0);
+              p_restart <= '1';
             when others =>
               null;
           end case;
@@ -197,7 +204,7 @@ begin
           d := (others => '0');
           case a is
             when 16#000#/4 => d := x"4C535043";
-            when 16#004#/4 => d := x"0001" & x"00" & x"02";
+            when 16#004#/4 => d := x"0001" & x"01" & x"02";
             when 16#008#/4 => d(0) := r_enable; d(8) := r_irq_en;
             when 16#00C#/4 =>
               d(1 downto 0) := std_logic_vector(st_nfull);
@@ -211,6 +218,7 @@ begin
             when 16#020#/4 => d := std_logic_vector(st_lost_cnt);
             when 16#024#/4 => d := std_logic_vector(st_restarts);
             when 16#028#/4 => d := r_scratch;
+            when 16#02C#/4 => d := std_logic_vector(resize(r_input, 32));
             when 16#030#/4 => d := std_logic_vector(hd_seq);
             when 16#034#/4 => d := hd_flags;
             when 16#038#/4 => d := std_logic_vector(hd_acc_len);
@@ -247,5 +255,6 @@ begin
   cfg_irq_en  <= r_irq_en;
   cfg_subband <= r_subband;
   cfg_acc_len <= r_acc_len;
+  cfg_input   <= r_input;
 
 end architecture rtl;

@@ -1,8 +1,9 @@
 /*
- * spec.c - integrating spectrometer on ADC channel 0
+ * spec.c - integrating spectrometer on a selectable ADC channel (INPUT)
  *
  * The FPGA accumulates ACC_LEN+1 spectra of 4096 fine channels of the
- * selected coarse channel (SUBBAND) and stores each integration in one of
+ * selected coarse channel (SUBBAND) of the selected ADC channel (INPUT)
+ * and stores each integration in one of
  * two banks; the interrupt stays high while a full bank is waiting.  The
  * banks are read here over AXI-Lite (8192 32-bit reads, ~3 ms) and freed.
  */
@@ -34,6 +35,9 @@ int spec_init(struct pl *p)
     }
     uint32_t sv = hw_rd(&p->spec, SP_VERSION);
     LOGI("spec: spectrometer v%u.%u, %u banks", sv >> 16, (sv >> 8) & 0xFF, sv & 0xFF);
+    p->spec_has_input = (sv >> 16) > 1 || ((sv >> 16) == 1 && ((sv >> 8) & 0xFF) >= 1);
+    if (!p->spec_has_input)
+        LOGW("spec: no input selector in this bitstream - ADC channel 0 only");
     /* drop anything left from a previous run */
     hw_wr(&p->spec, SP_CTRL, SPC_CNT_CLEAR);
     while (SPS_NFULL(hw_rd(&p->spec, SP_STATUS)))
@@ -49,6 +53,10 @@ void spec_apply(struct pl *p, const struct luna_config *c)
         return;
     uint32_t acc = c->spec_nspec - 1;
     uint32_t sb = (uint32_t)c->spec_subband;
+    uint32_t in = (uint32_t)c->spec_input;
+    if (p->spec_has_input && (!p->spec_shadow_valid || in != p->spec_input))
+        hw_wr(&p->spec, SP_INPUT, in);
+    p->spec_input = in;
     if (!p->spec_shadow_valid || acc != p->spec_acc_len)
         hw_wr(&p->spec, SP_ACC_LEN, acc);
     if (!p->spec_shadow_valid || sb != p->spec_subband)
@@ -91,6 +99,7 @@ int spec_read(struct pl *p, struct luna_spec_hdr *h, uint64_t *power)
     h->seq = hw_rd(&p->spec, SP_HEAD_SEQ);
     h->n_spectra = hw_rd(&p->spec, SP_HEAD_ACCLEN) + 1;
     h->subband = (uint8_t)SPF_SUBBAND(flags);
+    h->adc_input = (uint8_t)SPF_INPUT(flags);
     h->flags = (flags & SPF_FIRST) ? LUNA_SPEC_F_FIRST : 0;
     h->end_sample = ((uint64_t)hw_rd(&p->spec, SP_HEAD_TS_HI) << 32) |
                     hw_rd(&p->spec, SP_HEAD_TS_LO);
@@ -103,6 +112,11 @@ int spec_read(struct pl *p, struct luna_spec_hdr *h, uint64_t *power)
     h->lost = hw_rd(&p->spec, SP_LOST_COUNT);
     h->restarts = hw_rd(&p->spec, SP_RESTARTS);
     return 1;
+}
+
+int spec_has_input(const struct pl *p)
+{
+    return p->has_spec && p->spec_has_input;
 }
 
 uint32_t spec_nspec_from_seconds(double t)

@@ -73,8 +73,9 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 
 ## Spectrometer `0xA014_0000`
 
-Integrating spectrometer on ADC channel 0 (`hw/hdl/spectrometer_top.vhd`):
+Integrating spectrometer on one ADC channel (`hw/hdl/spectrometer_top.vhd`):
 
+- **Input select:** the INPUT register picks one of the 8 ADC channels (default 0), after the trigger core's gearbox. It's a pipelined 8:1 mux at 245.76 MHz (spectrometer v1.1).
 - **Coarse filter bank (`pfb32x16t`):** splits the 3.93216 GS/s real signal into 17 coarse channels ("subbands") of 122.88 MHz, each sampled at 122.88 MS/s complex. Subband k is centred on k × 122.88 MHz. Subbands 0 (DC) and 16 (Nyquist) are real.
 - **Fine filter bank (`dfb4096x1c`):** the subband selected by SUBBAND goes to this 4096-channel filter bank, with 30 kHz channels. A spectrum takes 4096 / 122.88 MHz = 33.33 µs.
 - **Integration:** the power in each channel is accumulated (64 bit) over ACC_LEN + 1 spectra. The default is 180000 spectra = 6.000 s.
@@ -83,7 +84,7 @@ Integrating spectrometer on ADC channel 0 (`hw/hdl/spectrometer_top.vhd`):
 | Offset | Name | Access | Description |
 |--------|------|--------|-------------|
 | 0x000 | ID | RO | `0x4C535043` ("LSPC") |
-| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of banks (2) |
+| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of banks (2). v1.1 adds INPUT |
 | 0x008 | CTRL | RW/W1P | bit0 **ENABLE** (level; 0→1 restarts the integration), bit8 **IRQ_EN** (level); pulses: bit1 RESTART, bit4 CNT_CLEAR. Always write the level bits back with any pulse. |
 | 0x00C | STATUS | RO | [1:0] banks full, bit4 head bank, bit8 enabled, bit9 running (fine filter bank fed), bit10 writing a bank |
 | 0x010 | SUBBAND | RW | coarse channel 0..16 for the fine filter bank (default 12 = 1474.56 MHz). A write restarts the integration |
@@ -93,14 +94,15 @@ Integrating spectrometer on ADC channel 0 (`hw/hdl/spectrometer_top.vhd`):
 | 0x020 | LOST_COUNT | RO | integrations lost because both banks were full |
 | 0x024 | RESTARTS | RO | integration restarts |
 | 0x028 | SCRATCH | RW | scratch register |
+| 0x02C | INPUT | RW | ADC channel 0..7 feeding the filter banks (default 0, v1.1+). A write restarts the integration |
 | 0x030 | HEAD_SEQ | RO | oldest full bank: sequence number |
-| 0x034 | HEAD_FLAGS | RO | oldest full bank: bit0 first integration after a restart, [12:8] subband |
+| 0x034 | HEAD_FLAGS | RO | oldest full bank: bit0 first integration after a restart, [12:8] subband, [18:16] input ADC channel |
 | 0x038 | HEAD_ACCLEN | RO | oldest full bank: ACC_LEN it was integrated with |
 | 0x03C / 0x040 | HEAD_TS_LO / HI | RO | oldest full bank: ADC sample counter (trigger-core time base) when the integration ended |
 | 0x10000 + 0x8000·b + 8·k | BANK[b][k] | RO | bank b, fine channel k: accumulated power [31:0] at +0, [63:32] at +4 |
 
 **Restarts:**
-- **What causes one:** ENABLE 0→1, RESTART, or a write to SUBBAND or ACC_LEN. The fine filter bank is resynchronised and its accumulator restarts from zero. An integration that was being written is discarded.
+- **What causes one:** ENABLE 0→1, RESTART, or a write to INPUT, SUBBAND or ACC_LEN. The fine filter bank is resynchronised and its accumulator restarts from zero. An integration that was being written is discarded.
 - **Settling after a restart:** the fine filter bank re-synchronises its accumulator about 5 spectra (170 µs) after a restart, when the FFT output restarts. Until then it keeps producing integrations on its old schedule, which may be empty, mixed or cut short. The wrapper ignores every output that begins within 6 spectra of the (re)start, and stores an integration only if all 4096 channels arrived. The first integration stored after a restart therefore contains only data from after the change; it is flagged in HEAD_FLAGS for information.
 - **Delay before the first integration:** about 6 spectra (0.2 ms) plus the integration time.
 

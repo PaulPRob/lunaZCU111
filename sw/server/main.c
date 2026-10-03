@@ -5,7 +5,7 @@
  *    data converter and multi-tile synchronisation
  *  - configures the trigger core, waits for its interrupt (UIO), reads each
  *    captured event via DMA and pushes it to all clients on TCP 5000
- *  - runs the integrating spectrometer on ADC channel 0 and pushes each
+ *  - runs the integrating spectrometer on one ADC channel and pushes each
  *    integration to all clients on TCP 5002
  *  - accepts text commands on TCP 5001 (thresholds, mode, spectrometer ...)
  *
@@ -136,7 +136,7 @@ static const char *help_text =
     "SET THRESH <ch|ALL> <0-32767> | SET MODE COINC|ANTI | SET N <1-8> | "
     "SET WINDOW <1-255> | SET MASK <0x00-0xFF> | SET LEN <4096-16384> | "
     "ARM | DISARM | SOFTTRIG | RESYNC | "
-    "GET SPEC | SPEC ON|OFF|RESTART | SET SPEC_SUBBAND <0-16> | "
+    "GET SPEC | SPEC ON|OFF|RESTART | SET SPEC_INPUT <0-7> | SET SPEC_SUBBAND <0-16> | "
     "SET SPEC_TINT <seconds> | SET SPEC_NSPEC <spectra> | SAVE | HELP";
 
 static void cmd_status(char *r, size_t n)
@@ -176,10 +176,11 @@ static void cmd_spec(char *r, size_t n)
         s.restarts = g_sim_spec_restarts;
     }
     snprintf(r, n,
-             "OK present=%d enabled=%d subband=%d nspec=%u tint=%.6f centre_mhz=%.3f "
+             "OK present=%d enabled=%d input=%d subband=%d nspec=%u tint=%.6f centre_mhz=%.3f "
              "bandwidth_mhz=%.3f fine_khz=%.3f integrations=%u lost=%u restarts=%u "
              "banks_full=%u clients=%d sent=%llu dropped=%llu",
-             spec_present(), g_cfg.spec_enable, g_cfg.spec_subband, g_cfg.spec_nspec,
+             spec_present(), g_cfg.spec_enable, g_cfg.spec_input, g_cfg.spec_subband,
+             g_cfg.spec_nspec,
              spec_seconds(g_cfg.spec_nspec), spec_centre_hz(g_cfg.spec_subband) / 1e6,
              FS_HZ / 32 / 1e6, FS_HZ / 32 / LUNA_SPEC_NCHAN / 1e3, s.count, s.lost, s.restarts,
              SPS_NFULL(s.status), net_data_clients(g_net, NET_STREAM_SPEC),
@@ -191,7 +192,18 @@ static void cmd_spec(char *r, size_t n)
 static int set_spec(const char *key, const char *val, char *r, size_t n)
 {
     char *end;
-    if (!strcasecmp(key, "SPEC_SUBBAND")) {
+    if (!strcasecmp(key, "SPEC_INPUT")) {
+        long v = strtol(val, &end, 0);
+        if (*end || v < 0 || v >= LUNA_SPEC_NINPUT) {
+            snprintf(r, n, "ERR SPEC_INPUT must be 0-7");
+            return 0;
+        }
+        if (v != 0 && !g_sim && !spec_has_input(&g_pl)) {
+            snprintf(r, n, "ERR this bitstream's spectrometer has ADC channel 0 only");
+            return 0;
+        }
+        g_cfg.spec_input = (int)v;
+    } else if (!strcasecmp(key, "SPEC_SUBBAND")) {
         long v = strtol(val, &end, 0);
         if (*end || v < 0 || v >= LUNA_SPEC_NSUB) {
             snprintf(r, n, "ERR SPEC_SUBBAND must be 0-16");
@@ -227,12 +239,12 @@ static int set_spec(const char *key, const char *val, char *r, size_t n)
 static void cmd_config(char *r, size_t n)
 {
     snprintf(r, n, "OK thresh=%u,%u,%u,%u,%u,%u,%u,%u mode=%s n=%d window=%d mask=0x%02X len=%d armed=%d "
-             "spec_enable=%d spec_subband=%d spec_nspec=%u",
+             "spec_enable=%d spec_input=%d spec_subband=%d spec_nspec=%u",
              g_cfg.thresh[0], g_cfg.thresh[1], g_cfg.thresh[2], g_cfg.thresh[3],
              g_cfg.thresh[4], g_cfg.thresh[5], g_cfg.thresh[6], g_cfg.thresh[7],
              g_cfg.mode_anti ? "ANTI" : "COINC", g_cfg.coinc_n, g_cfg.window,
              g_cfg.ch_mask, g_cfg.cap_len, g_cfg.armed,
-             g_cfg.spec_enable, g_cfg.spec_subband, g_cfg.spec_nspec);
+             g_cfg.spec_enable, g_cfg.spec_input, g_cfg.spec_subband, g_cfg.spec_nspec);
 }
 
 static void cmd_rates(char *r, size_t n)
@@ -407,7 +419,8 @@ static void publish_spec(struct net_event *e)
     h->sample_rate_hz = FS_HZ;
     h->n_channels = LUNA_SPEC_NCHAN;
     g_spectra++;
-    LOGD("spectrum seq %u subband %u n %u%s", h->seq, h->subband, h->n_spectra,
+    LOGD("spectrum seq %u input %u subband %u n %u%s", h->seq, h->adc_input, h->subband,
+         h->n_spectra,
          (h->flags & LUNA_SPEC_F_FIRST) ? " (first after restart)" : "");
     net_publish(g_net, NET_STREAM_SPEC, e);
     net_event_put(e);
@@ -440,6 +453,7 @@ static void sim_spec_tick(void)
     h->seq = g_sim_spec_seq++;
     h->n_spectra = g_cfg.spec_nspec;
     h->subband = (uint8_t)g_cfg.spec_subband;
+    h->adc_input = (uint8_t)g_cfg.spec_input;
     h->flags = g_sim_spec_first ? LUNA_SPEC_F_FIRST : 0;
     h->end_sample = (uint64_t)(now_s() * FS_HZ);
     h->restarts = g_sim_spec_restarts;

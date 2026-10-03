@@ -13,8 +13,9 @@ struct luna_config {
     uint32_t ch_mask;           /* channels taking part                          */
     int      cap_len;           /* 4096..16384 samples, multiple of 32           */
     int      armed;             /* arm on start-up                               */
-    /* spectrometer (ADC channel 0) */
+    /* spectrometer */
     int      spec_enable;       /* 0/1                                           */
+    int      spec_input;        /* ADC channel 0..7 feeding the spectrometer     */
     int      spec_subband;      /* coarse channel 0..16 for the fine spectrum    */
     uint32_t spec_nspec;        /* spectra per integration (180000 = 6.000 s)    */
 };

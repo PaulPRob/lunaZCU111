@@ -1,10 +1,12 @@
 -------------------------------------------------------------------------------
 -- tb_spec : spectrometer_top with the real CSIRO PFB/DFB cores
 --
--- ADC channel 0 carries two real tones (sample rate fs, fine channel
+-- ADC channel TONE_CH carries two real tones (sample rate fs, fine channel
 -- df = fs/32/4096 = 30 kHz at fs = 3932.16 MS/s):
 --   A: subband 12 centre + 25 df   -> expect fine channel 25 of subband 12
 --   B: subband 12 centre - 100 df  -> expect fine channel 4096-100 = 3996
+-- Another channel (DECOY_CH) carries a decoy tone C at subband 12 centre
+-- + 300 df (600 codes) that must NOT appear; INPUT selects TONE_CH.
 -- spec_writes.txt / spec_events.txt are checked by check_spec.py.
 --
 -- TEST_MODE 0 (data): ACC_LEN = 1 (2 spectra), SUBBAND 12, ENABLE; two
@@ -26,7 +28,8 @@ use std.env.all;
 entity tb_spec is
   generic (
     TEST_MODE : integer := 0;      -- 0 data, 1 restart
-    NO_PFB    : boolean := false
+    NO_PFB    : boolean := false;
+    TONE_CH   : integer := 0       -- ADC channel with tones A/B (= INPUT)
   );
 end entity tb_spec;
 
@@ -39,10 +42,12 @@ architecture sim of tb_spec is
   constant PB   : integer := 12 * NFFT - 100;
   constant AMPA : real := 600.0;              -- 12-bit ADC codes
   constant AMPB : real := 150.0;
+  constant PC   : integer := 12 * NFFT + 300;  -- decoy on another channel
+  constant DECOY_CH : integer := (TONE_CH + 3) mod 8;
 
   signal clk_1x, clk_spec : std_logic := '0';
   signal aresetn : std_logic := '0';
-  signal din     : std_logic_vector(255 downto 0) := (others => '0');
+  signal din     : std_logic_vector(2047 downto 0) := (others => '0');  -- 8 channels
   signal ts      : unsigned(63 downto 0) := (others => '0');
 
   signal awaddr, araddr : std_logic_vector(16 downto 0) := (others => '0');
@@ -92,6 +97,8 @@ begin
   process (clk_1x)
     variable pha : integer := 0;               -- phase of tone A, in 1/NTOT turns
     variable phb : integer := 0;
+    variable phc : integer := 0;
+    variable xc  : real;
     variable x   : real;
     variable c   : integer;
   begin
@@ -99,10 +106,15 @@ begin
       for l in 0 to 15 loop
         x := AMPA * cos(MATH_2_PI * real(pha) / real(NTOT)) +
              AMPB * cos(MATH_2_PI * real(phb) / real(NTOT));
+        xc := AMPA * cos(MATH_2_PI * real(phc) / real(NTOT));
         pha := (pha + PA) mod NTOT;
         phb := (phb + PB) mod NTOT;
+        phc := (phc + PC) mod NTOT;
         c := integer(round(x));
-        din(16*l+15 downto 16*l) <= std_logic_vector(to_signed(c * 16, 16));
+        din(256*TONE_CH+16*l+15 downto 256*TONE_CH+16*l) <=
+          std_logic_vector(to_signed(c * 16, 16));
+        din(256*DECOY_CH+16*l+15 downto 256*DECOY_CH+16*l) <=
+          std_logic_vector(to_signed(integer(round(xc)) * 16, 16));
       end loop;
       ts <= ts + 16;
     end if;
@@ -228,6 +240,9 @@ begin
     report "TB version " & integer'image(to_integer(unsigned(d)));
 
     wr(16#010#, 12);
+    wr(16#02C#, TONE_CH);
+    rd(16#02C#, d);
+    report "TB input=" & integer'image(to_integer(unsigned(d)));
     if TEST_MODE = 0 then
       -- data: two integrations of 2 spectra
       wr(16#014#, 1);

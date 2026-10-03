@@ -1,4 +1,5 @@
-"""lunaGUI main window: connection, trigger configuration, status, recording."""
+"""lunaGUI main window: connection, trigger and spectrometer configuration,
+status, recording."""
 from __future__ import annotations
 
 import os
@@ -11,10 +12,12 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, 
                              QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
                              QVBoxLayout, QWidget)
 
-from lunaclient.protocol import CTRL_PORT, DATA_PORT, NCH
+from lunaclient.protocol import (CTRL_PORT, DATA_PORT, NCH, SPEC_NINPUT, SPEC_NSUB,
+                                 SPEC_PORT, SPECTRUM_S, SUBBAND_HZ)
 
 from .plotwin import PlotWindow
-from .workers import ControlWorker, DataReceiver, PlotWorker, Recorder
+from .specwin import SpecWindow
+from .workers import ControlWorker, DataReceiver, PlotWorker, Recorder, SpecReceiver
 
 FS = 3.93216e9
 
@@ -46,7 +49,10 @@ class MainWindow(QMainWindow):
         self.plotter = PlotWorker()
         self.plotter.ready.connect(self._on_plot_data)
         self.plotwin: PlotWindow | None = None
+        self.srx: SpecReceiver | None = None
+        self.specwin: SpecWindow | None = None
         self.server_cfg: dict = {}
+        self.server_spec: dict = {}          # spectrometer part of GET CONFIG
         self._prev_status: dict | None = None
         self._prev_rx = None            # (t, events, bytes, ch_trig, seq_gaps)
 
@@ -61,6 +67,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self._build_connection())
         left.addWidget(self._build_trigger())
         left.addWidget(self._build_run())
+        left.addWidget(self._build_spec())
         left.addStretch(1)
         right.addWidget(self._build_status())
         right.addWidget(self._build_record())
@@ -86,11 +93,15 @@ class MainWindow(QMainWindow):
         self.data_port = QSpinBox()
         self.data_port.setRange(1, 65535)
         self.data_port.setValue(int(self.qs.value("conn/data_port", DATA_PORT)))
+        self.spec_port = QSpinBox()
+        self.spec_port.setRange(1, 65535)
+        self.spec_port.setValue(int(self.qs.value("conn/spec_port", SPEC_PORT)))
         self.btn_connect = QPushButton("Connect")
         self.btn_connect.clicked.connect(self._toggle_connect)
         self.conn_led = QLabel("●")
         for w in (QLabel("Host"), self.host, QLabel("ctrl"), self.ctrl_port,
-                  QLabel("data"), self.data_port, self.btn_connect, self.conn_led):
+                  QLabel("data"), self.data_port, QLabel("spectra"), self.spec_port,
+                  self.btn_connect, self.conn_led):
             h.addWidget(w)
         return g
 
@@ -261,6 +272,76 @@ class MainWindow(QMainWindow):
                             self.btn_apply, self.btn_reload, self.btn_save]
         return g
 
+    def _build_spec(self):
+        g = QGroupBox("Spectrometer (one ADC → 16-channel PFB → 4096-channel DFB)")
+        v = QVBoxLayout(g)
+        f = QGridLayout()
+        self.spec_en = QCheckBox("Enabled")
+        self.spec_input = QComboBox()
+        for c in range(SPEC_NINPUT):
+            self.spec_input.addItem(f"ADC {c}", c)
+        self.spec_input.setToolTip("ADC channel feeding the spectrometer (SET SPEC_INPUT)")
+        self.spec_sub = QSpinBox()
+        self.spec_sub.setRange(0, SPEC_NSUB - 1)
+        self.spec_sub.setToolTip("Coarse channel: centre = k × 122.88 MHz, 122.88 MHz wide\n"
+                                 "(0 and 16 are the real DC and Nyquist channels)")
+        self.spec_sub_lab = QLabel()
+        self.spec_tint = QDoubleSpinBox()
+        self.spec_tint.setDecimals(4)
+        self.spec_tint.setRange(SPECTRUM_S, 100000.0)
+        self.spec_tint.setSuffix(" s")
+        self.spec_tint.setKeyboardTracking(False)
+        self.spec_tint.setToolTip("Integration time, rounded to whole spectra of 33.33 µs.\n"
+                                  "Below ~50 ms some integrations are lost.")
+        self.spec_tint_lab = QLabel()
+        self.spec_sub.valueChanged.connect(lambda k: self.spec_sub_lab.setText(
+            f"centre {k * SUBBAND_HZ / 1e6:.2f} MHz"))
+        self.spec_tint.valueChanged.connect(lambda t: self.spec_tint_lab.setText(
+            f"= {self._spec_nspec()} spectra"))
+        for w in (self.spec_en, self.spec_input, self.spec_sub, self.spec_tint):
+            sig = (w.toggled if isinstance(w, QCheckBox) else
+                   w.currentIndexChanged if isinstance(w, QComboBox) else w.valueChanged)
+            sig.connect(self._mark_spec_dirty)
+        f.addWidget(self.spec_en, 0, 0)
+        f.addWidget(QLabel("Input"), 0, 1)
+        f.addWidget(self.spec_input, 0, 2)
+        f.addWidget(QLabel("Subband"), 1, 0)
+        f.addWidget(self.spec_sub, 1, 1)
+        f.addWidget(self.spec_sub_lab, 1, 2)
+        f.addWidget(QLabel("Integration"), 2, 0)
+        f.addWidget(self.spec_tint, 2, 1)
+        f.addWidget(self.spec_tint_lab, 2, 2)
+        f.setColumnStretch(3, 1)
+        v.addLayout(f)
+        self.spec_sub.setValue(12)
+        self.spec_tint.setValue(6.0)
+
+        h = QHBoxLayout()
+        self.btn_spec_apply = QPushButton("Apply")
+        self.btn_spec_apply.setToolTip("Send the changed spectrometer settings (each change "
+                                       "restarts the integration)")
+        self.btn_spec_apply.clicked.connect(self._apply_spec)
+        self.btn_spec_restart = QPushButton("Restart integration")
+        self.btn_spec_restart.clicked.connect(
+            lambda: self.ctl and self.ctl.send("SPEC RESTART"))
+        self.btn_spec_rec = QPushButton("Record spectra")
+        self.btn_spec_rec.setCheckable(True)
+        self.btn_spec_rec.setToolTip("One .npz per integration (luna-spec format) in\n"
+                                     "<recording dir>/<prefix>spec_<date>_<time>/")
+        self.btn_spec_rec.clicked.connect(self._toggle_spec_record)
+        self.spec_dirty_lab = QLabel("")
+        for w in (self.btn_spec_apply, self.btn_spec_restart, self.btn_spec_rec,
+                  self.spec_dirty_lab):
+            h.addWidget(w)
+        h.addStretch(1)
+        v.addLayout(h)
+        self.spec_status = QLabel("–")
+        self.spec_status.setWordWrap(True)
+        self.spec_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        v.addWidget(self.spec_status)
+        self.run_buttons += [self.btn_spec_apply, self.btn_spec_restart, self.btn_spec_rec]
+        return g
+
     def _build_status(self):
         g = QGroupBox("Status")
         f = QFormLayout(g)
@@ -321,6 +402,9 @@ class MainWindow(QMainWindow):
         b = QPushButton("Open plot window")
         b.clicked.connect(self._open_plots)
         h.addWidget(b)
+        b = QPushButton("Open spectrum window")
+        b.clicked.connect(self._open_spectrum)
+        h.addWidget(b)
         h.addStretch(1)
         return g
 
@@ -342,7 +426,7 @@ class MainWindow(QMainWindow):
             b.setEnabled(on)
         self.btn_connect.setText("Disconnect" if on else "Connect")
         self.conn_led.setStyleSheet(f"color: {'#20b020' if on else '#a0a0a0'}; font-size: 16pt")
-        for w in (self.host, self.ctrl_port, self.data_port):
+        for w in (self.host, self.ctrl_port, self.data_port, self.spec_port):
             w.setEnabled(not on)
 
     def _mark_dirty(self, *_):
@@ -378,6 +462,80 @@ class MainWindow(QMainWindow):
             cmds.append(f"SET LEN {w['len']}")
         return cmds
 
+    # ------------------------------------------------------- spectrometer
+    def _spec_nspec(self) -> int:
+        return max(1, int(round(self.spec_tint.value() / SPECTRUM_S)))
+
+    def _spec_widgets(self) -> dict:
+        return {"enable": self.spec_en.isChecked(), "input": self.spec_input.currentData(),
+                "subband": self.spec_sub.value(), "nspec": self._spec_nspec()}
+
+    def _spec_diff(self) -> list[str]:
+        cfg, w = self.server_spec, self._spec_widgets()
+        cmds = []
+        if w["input"] != cfg.get("input"):
+            cmds.append(f"SET SPEC_INPUT {w['input']}")
+        if w["subband"] != cfg.get("subband"):
+            cmds.append(f"SET SPEC_SUBBAND {w['subband']}")
+        if w["nspec"] != cfg.get("nspec"):
+            cmds.append(f"SET SPEC_NSPEC {w['nspec']}")
+        if w["enable"] != cfg.get("enable"):
+            cmds.append("SPEC ON" if w["enable"] else "SPEC OFF")
+        return cmds
+
+    def _mark_spec_dirty(self, *_):
+        if self.server_spec:
+            self.spec_dirty_lab.setText(
+                '<span style="color:#d08000">changed – press Apply</span>'
+                if self._spec_diff() else "")
+
+    def _apply_spec(self):
+        if not self.ctl:
+            return
+        cmds = self._spec_diff()
+        if not cmds:
+            self.log("spectrometer: nothing changed")
+            return
+        self.ctl.send(*cmds, refresh_config=True)
+
+    def _toggle_spec_record(self, checked: bool):
+        if not checked:
+            if self.srx is not None:
+                self.srx.stop_record()
+                self.log(f"spectrum recording stopped: {self.srx.written} integrations")
+            self.btn_spec_rec.setText("Record spectra")
+            self.btn_spec_rec.setStyleSheet("")
+            return
+        if self.srx is None:
+            self.btn_spec_rec.setChecked(False)
+            return
+        try:
+            d = self.srx.start_record(self.rec_dir.text(), self.rec_prefix.text(),
+                                      skip_first=True)
+        except OSError as e:
+            self.btn_spec_rec.setChecked(False)
+            QMessageBox.warning(self, "Recording", f"Cannot create the directory:\n{e}")
+            return
+        self.btn_spec_rec.setText("Stop recording spectra")
+        self.btn_spec_rec.setStyleSheet("background-color: #c03030; color: white")
+        self.log(f"recording spectra to {d} (skipping 'first after restart')")
+
+    def _spec_rec_error(self, msg: str):
+        self.btn_spec_rec.setChecked(False)
+        self._toggle_spec_record(False)
+        self.log(msg)
+
+    def _open_spectrum(self):
+        if self.specwin is None:
+            self.specwin = SpecWindow(self.qs)
+        self.specwin.show()
+        self.specwin.raise_()
+        self.specwin.activateWindow()
+
+    def _on_spectrum(self, s):
+        if self.specwin is not None:
+            self.specwin.on_spectrum(s)
+
     # ============================================================ actions
     def _toggle_connect(self):
         if self.ctl is not None or self.rx is not None:
@@ -387,6 +545,7 @@ class MainWindow(QMainWindow):
         self.qs.setValue("conn/host", host)
         self.qs.setValue("conn/ctrl_port", self.ctrl_port.value())
         self.qs.setValue("conn/data_port", self.data_port.value())
+        self.qs.setValue("conn/spec_port", self.spec_port.value())
         self._prev_status = None
         self._prev_rx = None
         self.ctl = ControlWorker(host, self.ctrl_port.value(), self.poll.value(),
@@ -402,21 +561,35 @@ class MainWindow(QMainWindow):
         rx = self.rx
         self.rx.connected.connect(lambda ok, m: self._link_status(rx, ok, m))
         self.rx.start()
+        # the spectrum port is optional (older servers have none): log only
+        self.srx = SpecReceiver(host, self.spec_port.value())
+        self.srx.connected.connect(lambda ok, m: self.log(m))
+        self.srx.spectrum.connect(self._on_spectrum)
+        self.srx.rec_error.connect(self._spec_rec_error)
+        self.srx.start()
         self._set_connected_ui(True)
         self.log(f"connecting to {host} …")
 
     def _disconnect(self):
         if self.recorder.active:
             self.recorder.stop()
-        ctl, rx = self.ctl, self.rx
-        self.ctl = self.rx = None
+        ctl, rx, srx = self.ctl, self.rx, self.srx
+        self.ctl = self.rx = self.srx = None
         if ctl:
             ctl.stop()
         if rx:
             rx.stop()
+        if srx:
+            srx.stop()
+        if self.btn_spec_rec.isChecked():
+            self.btn_spec_rec.setChecked(False)
+            self.btn_spec_rec.setText("Record spectra")
+            self.btn_spec_rec.setStyleSheet("")
         self._set_connected_ui(False)
         self.server_cfg = {}
+        self.server_spec = {}
         self.dirty_lab.setText("")
+        self.spec_dirty_lab.setText("")
 
     def _link_status(self, worker, ok: bool, msg: str):
         self.log(msg)
@@ -526,6 +699,20 @@ class MainWindow(QMainWindow):
         self.length.setValue(cfg["len"])
         self._show_armed(cfg["armed"])
         self.dirty_lab.setText("")
+        if "spec_nspec" in kv:                    # server with the spectrometer
+            try:
+                sc = {"enable": kv.get("spec_enable") == "1",
+                      "input": int(kv.get("spec_input", "0")),
+                      "subband": int(kv["spec_subband"]), "nspec": int(kv["spec_nspec"])}
+            except (KeyError, ValueError) as e:
+                self.log(f"could not parse spectrometer config: {e}")
+                return
+            self.server_spec = sc
+            self.spec_en.setChecked(sc["enable"])
+            self.spec_input.setCurrentIndex(sc["input"])
+            self.spec_sub.setValue(sc["subband"])
+            self.spec_tint.setValue(sc["nspec"] * SPECTRUM_S)
+            self.spec_dirty_lab.setText("")
 
     def _show_armed(self, armed: bool):
         self.armed_lab.setText("<b style='color:#20a020'>ARMED</b>" if armed
@@ -561,8 +748,25 @@ class MainWindow(QMainWindow):
         self.st["banks"].setText(f"{st.get('banks_full')} / {st.get('capturing')}")
         self.st["clients"].setText(st.get("clients", "–"))
         self.st["sample"].setText(st.get("sample", "–"))
+        sp = st.get("_spec")
+        if sp:
+            if sp.get("present") != "1":
+                self.spec_status.setText("no spectrometer in this bitstream")
+            else:
+                c = self.srx.c if self.srx is not None else None
+                rec = (f" &nbsp; recording: {self.srx.written} saved"
+                       if self.srx is not None and self.srx.rec_dir else "")
+                self.spec_status.setText(
+                    f"{'<b>running</b>' if sp.get('enabled') == '1' else 'disabled'} &nbsp; "
+                    f"ADC {sp.get('input', '0')}, subband {sp.get('subband')} "
+                    f"({sp.get('centre_mhz')} MHz), {float(sp.get('tint', 0)):.4g} s &nbsp; "
+                    f"integrations {sp.get('integrations')} &nbsp; lost {sp.get('lost')} &nbsp; "
+                    f"restarts {sp.get('restarts')} &nbsp; spectrum clients {sp.get('clients')}"
+                    + (f" &nbsp; received {c.received}, missed {c.seq_gaps}" if c else "")
+                    + rec)
         known = {"armed", "mode", "n", "window", "mask", "len", "banks_full", "capturing",
-                 "triggers", "lost", "events", "clients", "sent", "dropped", "sample", "sysref"}
+                 "triggers", "lost", "events", "clients", "sent", "dropped", "sample", "sysref",
+                 "spec", "spectra"}
         self.st["rfdc"].setText(" ".join(f"{k}={v}" for k, v in st.items()
                                          if k not in known and not k.startswith("_")))
 
@@ -598,4 +802,6 @@ class MainWindow(QMainWindow):
         self.plotter.stop()
         if self.plotwin is not None:
             self.plotwin.close()
+        if self.specwin is not None:
+            self.specwin.close()
         super().closeEvent(e)

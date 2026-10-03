@@ -1,9 +1,10 @@
 -------------------------------------------------------------------------------
--- spectrometer_top : integrating spectrometer on ADC channel 0
+-- spectrometer_top : integrating spectrometer on one of the 8 ADC channels
 --
 -- Used as a Vivado IP-integrator module reference.
 --
---   din_1x (16 samples @ 245.76 MHz) -> 2:1 gearbox -> 32 samples @ 122.88 MHz
+--   din_1x (8 channels x 16 samples @ 245.76 MHz) -> input select (INPUT
+--   register, pipelined 8:1 mux) -> 2:1 gearbox -> 32 samples @ 122.88 MHz
 --   -> pfb32x16t  : 32-input real polyphase filter bank, 17 coarse channels
 --                   (0 and 16 real), each 122.88 MHz wide, centred on
 --                   k * 122.88 MHz, sampled at 122.88 MS/s complex
@@ -47,7 +48,8 @@ entity spectrometer_top is
     clk_spec      : in  std_logic;  -- 122.88 MHz, same MMCM, phase aligned
     aresetn       : in  std_logic;  -- clk_spec domain, active low
 
-    din_1x        : in  std_logic_vector(255 downto 0);  -- ADC ch 0, lane 0 oldest
+    din_1x        : in  std_logic_vector(2047 downto 0); -- 8 ADC channels, ch k at
+                                                         -- [256k+255:256k], lane 0 oldest
     ts_1x         : in  std_logic_vector(63 downto 0);   -- trigger-core sample counter
 
     s_axi_awaddr  : in  std_logic_vector(16 downto 0);
@@ -160,6 +162,13 @@ architecture rtl of spectrometer_top is
 
   signal rst : std_logic := '1';
 
+  -- input select (clk_1x)
+  type w256_arr_t is array (natural range <>) of std_logic_vector(255 downto 0);
+  signal sel_a, sel_b : unsigned(2 downto 0) := (others => '0');
+  signal s0       : w256_arr_t(0 to 7);
+  signal s1       : w256_arr_t(0 to 1);
+  signal s2       : std_logic_vector(255 downto 0) := (others => '0');
+
   -- gearbox
   signal g_prev   : std_logic_vector(255 downto 0) := (others => '0');
   signal g_pair   : std_logic_vector(511 downto 0) := (others => '0');
@@ -191,6 +200,7 @@ architecture rtl of spectrometer_top is
   signal cfg_enable, cfg_irq_en : std_logic;
   signal cfg_subband : unsigned(4 downto 0);
   signal cfg_acc_len : unsigned(31 downto 0);
+  signal cfg_input   : unsigned(2 downto 0);
   signal p_restart, p_release, p_cnt_clear : std_logic;
   signal enable_d    : std_logic := '0';
   signal restart_cnt : integer range 0 to RESTART_LEN := RESTART_LEN;
@@ -232,6 +242,31 @@ begin
   end process;
 
   -----------------------------------------------------------------------------
+  -- input select: the 8 channel words come from all four ADC tiles, i.e. from
+  -- across the die, so the 8:1 mux is pipelined: one register per channel
+  -- (s0, placed near its source), 4:1 (s1), 2:1 (s2).  INPUT comes from the
+  -- clk_spec register block (same MMCM, static; a write restarts the
+  -- integration, so the few cycles of switching are discarded).
+  -----------------------------------------------------------------------------
+  process (clk_1x)
+  begin
+    if rising_edge(clk_1x) then
+      sel_a <= cfg_input;
+      sel_b <= sel_a;
+      for k in 0 to 7 loop
+        s0(k) <= din_1x(256*k+255 downto 256*k);
+      end loop;
+      s1(0) <= s0(to_integer(sel_b(1 downto 0)));
+      s1(1) <= s0(4 + to_integer(sel_b(1 downto 0)));
+      if sel_b(2) = '0' then
+        s2 <= s1(0);
+      else
+        s2 <= s1(1);
+      end if;
+    end if;
+  end process;
+
+  -----------------------------------------------------------------------------
   -- 16 samples @ 245.76 MHz -> 32 samples @ 122.88 MHz
   -- clk_1x and clk_spec come from the same MMCM (phase aligned, 2:1).  g_pair
   -- changes every second clk_1x cycle and is stable for two clk_1x cycles, so
@@ -241,10 +276,10 @@ begin
   process (clk_1x)
   begin
     if rising_edge(clk_1x) then
-      g_prev <= din_1x;
+      g_prev <= s2;
       g_ph   <= not g_ph;
       if g_ph = '1' then
-        g_pair <= din_1x & g_prev;
+        g_pair <= s2 & g_prev;
       end if;
       ts_r <= ts_1x;
     end if;
@@ -406,6 +441,7 @@ begin
       flg := (others => '0');
       flg(0) := first;
       flg(12 downto 8) := std_logic_vector(cfg_subband);
+      flg(18 downto 16) := std_logic_vector(cfg_input);
 
       if restart_cnt /= 0 then
         -- a restart discards the integration being written
@@ -522,6 +558,7 @@ begin
       cfg_irq_en    => cfg_irq_en,
       cfg_subband   => cfg_subband,
       cfg_acc_len   => cfg_acc_len,
+      cfg_input     => cfg_input,
       p_restart     => p_restart,
       p_release     => p_release,
       p_cnt_clear   => p_cnt_clear,
@@ -542,7 +579,8 @@ begin
 
   -----------------------------------------------------------------------------
   -- simulation only: write every stored channel to spec_writes.txt
-  --   "W <bank> <addr> <data hex>" and "C <seq> <first> <subband> <acc_len>"
+  --   "W <bank> <addr> <data hex>" and
+  --   "C <seq> <first> <subband> <acc_len> <input>"
   -----------------------------------------------------------------------------
   -- pragma translate_off
   g_dump : if SIM_DUMP generate
@@ -609,6 +647,8 @@ begin
           write(l, to_integer(cfg_subband));
           write(l, string'(" "));
           write(l, to_integer(cfg_acc_len));
+          write(l, string'(" "));
+          write(l, to_integer(cfg_input));
           writeline(f, l);
         end if;
       end if;

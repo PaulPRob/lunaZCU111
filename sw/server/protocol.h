@@ -10,6 +10,7 @@
  *     "OK ..." or "ERR ...".  See HELP / docs/protocol.md.
  *
  * SPECTRUM port (TCP 5002): one frame per integration of the spectrometer
+ *     (on the ADC channel selected with SET SPEC_INPUT, default 0)
  *     struct luna_spec_hdr       64 bytes
  *     uint64_t power[4096]       accumulated power per fine channel, FFT
  *                                order: channel k is k*30 kHz from the
@@ -35,15 +36,16 @@
 #define LUNA_EVENT_MAGIC    0x414E554Cu   /* "LUNA" */
 #define LUNA_SPEC_MAGIC     0x4350534Cu   /* "LSPC" */
 #define LUNA_PROTO_VERSION  1
-#define LUNA_SPEC_VERSION   1
+#define LUNA_SPEC_VERSION   2             /* 2: adc_input field          */
 
 /* every frame header is 64 bytes with the per-client 'dropped' count at 48 */
 #define LUNA_HDR_BYTES       64
 #define LUNA_HDR_DROPPED_OFF 48
 
-/* spectrometer (ADC channel 0) */
+/* spectrometer (one ADC channel, selected with SET SPEC_INPUT) */
 #define LUNA_SPEC_NCHAN     4096          /* fine channels per subband       */
 #define LUNA_SPEC_NSUB      17            /* coarse channels 0..16           */
+#define LUNA_SPEC_NINPUT    8             /* ADC channels selectable         */
 #define LUNA_SPEC_FFT_CLK   122.88e6      /* complex samples/s per subband   */
 
 /* trigger source codes (luna_event_hdr.trig_src) */
@@ -108,7 +110,7 @@ struct luna_spec_hdr {
     uint32_t lost;            /* integrations lost in the FPGA (banks full)  */
     uint16_t n_channels;      /* 4096                                        */
     uint8_t  subband;         /* coarse channel 0..16                        */
-    uint8_t  reserved0;
+    uint8_t  adc_input;       /* ADC channel 0..7 (version >= 2)             */
     uint32_t restarts;        /* integration restarts so far                 */
 } __attribute__((packed));
 

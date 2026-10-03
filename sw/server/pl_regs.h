@@ -73,10 +73,12 @@
 #define SP_LOST_COUNT    0x020
 #define SP_RESTARTS      0x024
 #define SP_SCRATCH       0x028
+#define SP_INPUT         0x02C     /* ADC channel 0..7 (spectrometer v1.1+) */
 #define SP_HEAD_SEQ      0x030
 #define SP_HEAD_FLAGS    0x034
 #define   SPF_FIRST        (1u << 0)
 #define   SPF_SUBBAND(x)   (((x) >> 8) & 0x1F)
+#define   SPF_INPUT(x)     (((x) >> 16) & 0x7)
 #define SP_HEAD_ACCLEN   0x038
 #define SP_HEAD_TS_LO    0x03C
 #define SP_HEAD_TS_HI    0x040

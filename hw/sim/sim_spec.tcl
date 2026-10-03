@@ -4,7 +4,8 @@
 #
 #   hw/sim/run_sim.sh spec          (runs both tests, then check_spec.py)
 #
-#   SPEC_TEST=data    : full chain, tones through PFB + DFB    (default)
+#   SPEC_TEST=data    : full chain, tones on ADC 5 (INPUT = 5) through PFB + DFB,
+#                       decoy tone on ADC 0                        (default)
 #   SPEC_TEST=restart : restart / shortening test, PFB model replaced by zeros
 # -----------------------------------------------------------------------------
 set here [file dirname [file normalize [info script]]]
@@ -28,7 +29,7 @@ set_property top tb_spec [get_filesets sim_1]
 if {$test eq "restart"} {
     set_property generic {TEST_MODE=1 NO_PFB=true} [get_filesets sim_1]
 } else {
-    set_property generic {TEST_MODE=0 NO_PFB=false} [get_filesets sim_1]
+    set_property generic {TEST_MODE=0 NO_PFB=false TONE_CH=5} [get_filesets sim_1]
 }
 set_property -name xsim.simulate.runtime -value all -objects [get_filesets sim_1]
 set_property -name xsim.simulate.log_all_signals -value false -objects [get_filesets sim_1]

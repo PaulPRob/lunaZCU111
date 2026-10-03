@@ -1,12 +1,15 @@
 """Background threads for lunaGUI.
 
 ControlWorker  owns the control socket (TCP 5001): queued commands + periodic
-               STATUS / GET RATES / GET PEAKS polling.
+               STATUS / GET RATES / GET PEAKS / GET SPEC polling.
 DataReceiver   reads events from the data port (TCP 5000), keeps counters,
                hands every event to the Recorder (when recording) and offers
                it to the PlotWorker.
 Recorder       writes events to .npz files (luna-client format) on its own thread, so that slow
                disks never stall the receiver.
+SpecReceiver   reads spectrometer integrations from the spectrum port (TCP
+               5002), keeps counters, optionally saves each one (.npz,
+               luna-spec format) and hands it to the GUI.
 PlotWorker     rate-limited analysis for the plot window: at low trigger rates
                every event is analysed, at high rates only the newest event
                every 1/max_rate seconds, and never before the GUI has drawn the
@@ -29,7 +32,8 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from lunaclient.cli import save_event
 from lunaclient.control import Control, ControlError, _kv
-from lunaclient.protocol import NCH, Event, EventStream
+from lunaclient.protocol import NCH, Event, EventStream, Spectrum, SpectrumStream
+from lunaclient.spec_cli import save_spectrum
 
 from . import dsp
 
@@ -49,6 +53,7 @@ class ControlWorker(QObject):
         self.host, self.port = host, port
         self.poll_s = poll_s
         self.poll_peaks = poll_peaks
+        self.poll_spec = True                # off once the server says ERR
         self._q: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._ctl: Control | None = None
@@ -90,6 +95,11 @@ class ControlWorker(QObject):
         if self.poll_peaks:
             pk = _kv(self._ctl.command("GET PEAKS"))
             st["_peaks"] = [int(x) for x in pk.get("peaks", "").split(",") if x]
+        if self.poll_spec:
+            try:
+                st["_spec"] = _kv(self._ctl.command("GET SPEC"))
+            except ControlError:             # server without the spectrometer
+                self.poll_spec = False
         self.status.emit(st)
 
     def _run(self):
@@ -341,6 +351,99 @@ class PlotWorker(QObject):
                         stats=dsp.channel_stats(codes),
                         thresh_codes=np.asarray(evt.thresholds, dtype=float) / 16.0,
                         calc_ms=(time.perf_counter() - t0) * 1e3)
+
+
+# --------------------------------------------------------------------------
+# spectrum receiver
+# --------------------------------------------------------------------------
+@dataclass
+class SpecCounters:
+    received: int = 0
+    seq_gaps: int = 0              # integrations missed (gaps in seq)
+    last_seq: int = -1
+    last_lost: int = 0             # FPGA lost count in the last frame
+    last_dropped: int = 0
+    simulated: bool = False
+
+
+class SpecReceiver(QObject):
+    """Reads integrations from TCP 5002 (one every integration time, so the
+    .npz files of 32 KiB are written on this thread)."""
+    connected = pyqtSignal(bool, str)
+    spectrum = pyqtSignal(object)            # Spectrum
+    rec_error = pyqtSignal(str)
+
+    def __init__(self, host: str, port: int):
+        super().__init__()
+        self.host, self.port = host, port
+        self.c = SpecCounters()
+        self.rec_dir = ""                    # recording when not empty
+        self.rec_skip_first = True
+        self.written = 0
+        self._stream: SpectrumStream | None = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="luna-spec", daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._stream is not None:
+            try:
+                self._stream.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        self._thread.join(timeout=3)
+
+    def start_record(self, outdir: str, prefix: str, skip_first: bool) -> str:
+        d = os.path.join(outdir, f"{prefix}spec_{time.strftime('%Y%m%d_%H%M%S')}")
+        os.makedirs(d, exist_ok=True)
+        self.written = 0
+        self.rec_skip_first = skip_first
+        self.rec_dir = d
+        return d
+
+    def stop_record(self):
+        self.rec_dir = ""
+
+    def _run(self):
+        try:
+            self._stream = SpectrumStream(self.host, self.port)
+        except OSError as e:
+            self.connected.emit(False, f"spectrum connection failed: {e}")
+            return
+        self.connected.emit(True, f"spectrum connected to {self.host}:{self.port}")
+        c = self.c
+        try:
+            while not self._stop.is_set():
+                s: Spectrum = self._stream.read()
+                c.received += 1
+                if c.last_seq >= 0 and s.seq > c.last_seq + 1:
+                    c.seq_gaps += s.seq - c.last_seq - 1
+                c.last_seq = s.seq
+                c.last_lost = s.lost
+                c.last_dropped = s.dropped
+                c.simulated = s.simulated
+                d = self.rec_dir
+                if d and not (self.rec_skip_first and s.first):
+                    try:
+                        save_spectrum(s, d)
+                        self.written += 1
+                    except OSError as e:
+                        self.rec_dir = ""
+                        self.rec_error.emit(f"spectrum recording failed: {e}")
+                self.spectrum.emit(s)
+        except (OSError, ConnectionError, ValueError) as e:
+            if not self._stop.is_set():
+                self.connected.emit(False, f"spectrum connection lost: {e}")
+                return
+        finally:
+            try:
+                self._stream.close()
+            except OSError:
+                pass
+        self.connected.emit(False, "spectrum disconnected")
 
 
 # --------------------------------------------------------------------------

@@ -5,10 +5,11 @@ usage: check_spec.py [--mode data|restart] spec_writes.txt [spec_events.txt]
 
 Every stored integration must have all 4096 channels written exactly once.
 
-data    (tb_spec TEST_MODE 0): two integrations with ACC_LEN = 1, the first
-        flagged "first after restart"; tones in subband 12: tone A (600
-        codes) in fine channel 25, tone B (150 codes) in fine channel
-        4096-100 = 3996, so power(A)/power(B) ~ 16.
+data    (tb_spec TEST_MODE 0, TONE_CH 5): two integrations with ACC_LEN = 1
+        and INPUT = 5, the first flagged "first after restart"; tones in
+        subband 12: tone A (600 codes) in fine channel 25, tone B (150 codes)
+        in fine channel 4096-100 = 3996, so power(A)/power(B) ~ 16; the decoy
+        tone on another ADC (fine channel 300) must be absent.
 restart (TEST_MODE 1, no PFB, data all zero): after shortening ACC_LEN from
         7 to 0, two integrations with ACC_LEN = 0, the first flagged.
 """
@@ -20,6 +21,8 @@ import numpy as np
 
 NCHAN = 4096
 BIN_A, BIN_B = 25, NCHAN - 100
+BIN_DECOY = 300
+DATA_INPUT = 5
 
 
 def load(path):
@@ -32,7 +35,8 @@ def load(path):
             cur[int(p[2])] = int(p[3], 16)
         elif p[0] == "C":
             specs.append(dict(seq=int(p[1]), first=p[2].strip("'") == "1",
-                              subband=int(p[3]), acc_len=int(p[4]), data=cur))
+                              subband=int(p[3]), acc_len=int(p[4]),
+                              input=int(p[5]) if len(p) > 5 else 0, data=cur))
             cur = {}
     return specs
 
@@ -54,7 +58,7 @@ def main():
     for s in specs:
         d = s["data"]
         tag = (f"seq {s['seq']}: acc_len {s['acc_len']} first {int(s['first'])} "
-               f"subband {s['subband']}")
+               f"subband {s['subband']} input {s['input']}")
         if sorted(d) != list(range(NCHAN)):
             print(f"{tag}  FAIL: {len(d)} channels written, not 0..4095 once each")
             ok = False
@@ -76,6 +80,12 @@ def main():
             ok = False
         elif not 8 < ratio < 32:
             print("  FAIL: tone power ratio far from 16")
+            ok = False
+        elif p[BIN_DECOY] > 1e-4 * p[BIN_A]:
+            print(f"  FAIL: decoy tone from another ADC present (P[300]={p[BIN_DECOY]:.3e})")
+            ok = False
+        elif s["input"] != DATA_INPUT:
+            print(f"  FAIL: input {s['input']} recorded, expected {DATA_INPUT}")
             ok = False
     want_len = 1 if a.mode == "data" else 0
     got = [(s["acc_len"], s["first"]) for s in specs]

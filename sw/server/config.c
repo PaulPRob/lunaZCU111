@@ -20,6 +20,7 @@ void config_defaults(struct luna_config *c)
     c->cap_len = 16384;
     c->armed = 1;
     c->spec_enable = 1;
+    c->spec_input = 0;
     c->spec_subband = SPEC_SUBBAND_DEFAULT;
     c->spec_nspec = SPEC_NSPEC_DEFAULT;
 }
@@ -37,6 +38,7 @@ int config_sanitize(struct luna_config *c)
     c->mode_anti = !!c->mode_anti;
     c->armed = !!c->armed;
     c->spec_enable = !!c->spec_enable;
+    if (c->spec_input < 0 || c->spec_input >= LUNA_SPEC_NINPUT) c->spec_input = 0;
     if (c->spec_subband < 0) c->spec_subband = 0;
     if (c->spec_subband > LUNA_SPEC_NSUB - 1) c->spec_subband = LUNA_SPEC_NSUB - 1;
     if (c->spec_nspec < 1) c->spec_nspec = 1;
@@ -68,6 +70,7 @@ int config_load(struct luna_config *c, const char *path)
             else if (!strcmp(key, "cap_len")) c->cap_len = (int)v;
             else if (!strcmp(key, "armed"))   c->armed = (int)v;
             else if (!strcmp(key, "spec_enable"))  c->spec_enable = (int)v;
+            else if (!strcmp(key, "spec_input"))   c->spec_input = (int)v;
             else if (!strcmp(key, "spec_subband")) c->spec_subband = (int)v;
             else if (!strcmp(key, "spec_nspec"))   c->spec_nspec = (uint32_t)v;
         }
@@ -93,8 +96,8 @@ int config_save(const struct luna_config *c, const char *path)
     fprintf(f, "mode_anti = %d\ncoinc_n = %d\nwindow = %d\nch_mask = 0x%02X\n"
                "cap_len = %d\narmed = %d\n",
             c->mode_anti, c->coinc_n, c->window, c->ch_mask, c->cap_len, c->armed);
-    fprintf(f, "spec_enable = %d\nspec_subband = %d\nspec_nspec = %u\n",
-            c->spec_enable, c->spec_subband, c->spec_nspec);
+    fprintf(f, "spec_enable = %d\nspec_input = %d\nspec_subband = %d\nspec_nspec = %u\n",
+            c->spec_enable, c->spec_input, c->spec_subband, c->spec_nspec);
     fclose(f);
     if (rename(tmp, path) < 0) {
         LOGE("config: rename to %s: %s", path, strerror(errno));

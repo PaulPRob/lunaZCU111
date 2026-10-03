@@ -17,8 +17,9 @@ struct pl {
     int nbanks;
     uint32_t ctrl_levels;    /* shadow of the CTRL level bits (ARM, IRQ_EN) */
     int has_spec;            /* spectrometer present (see spec.h)           */
+    int spec_has_input;      /* INPUT register present (spectrometer v1.1+) */
     int spec_shadow_valid;
-    uint32_t spec_acc_len, spec_subband;   /* last values written          */
+    uint32_t spec_acc_len, spec_subband, spec_input;  /* last values written */
 };
 
 int  pl_open(struct pl *p);

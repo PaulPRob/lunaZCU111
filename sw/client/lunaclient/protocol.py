@@ -5,7 +5,8 @@ Events (TCP 5000), one frame per captured event:
     event header  64 bytes  (produced by the FPGA)
     samples       int16 little endian, shape (8, n_samples), channel major
 
-Spectra (TCP 5002), one frame per spectrometer integration:
+Spectra (TCP 5002), one frame per spectrometer integration (of the ADC
+channel selected with SET SPEC_INPUT):
     spectrum header  64 bytes
     power            uint64 little endian, 4096 fine channels in FFT order
 """
@@ -29,6 +30,7 @@ SPEC_MAGIC = b"LSPC"
 SAMPLE_RATE_HZ = 3.93216e9
 SPEC_NCHAN = 4096                         # fine channels per subband
 SPEC_NSUB = 17                            # coarse channels 0..16
+SPEC_NINPUT = 8                           # selectable ADC channels
 SUBBAND_HZ = SAMPLE_RATE_HZ / 32          # 122.88 MHz: spacing and width
 FINE_HZ = SUBBAND_HZ / SPEC_NCHAN         # 30 kHz
 SPECTRUM_S = SPEC_NCHAN / SUBBAND_HZ      # one spectrum: 33.33 us
@@ -38,7 +40,7 @@ FRAME_HDR = struct.Struct("<4sHHIIQd8HI12x")
 # struct luna_event_hdr (protocol.h / capture_ctrl.vhd)
 EVENT_HDR = struct.Struct("<4sHHIIQQIBBBBHBBII12x")
 # struct luna_spec_hdr (protocol.h)
-SPEC_HDR = struct.Struct("<4sHHIIQQdIIIIHBxI")
+SPEC_HDR = struct.Struct("<4sHHIIQQdIIIIHBBI")
 assert FRAME_HDR.size == 64 and EVENT_HDR.size == 64 and SPEC_HDR.size == 64
 
 SPEC_F_SIM = 1
@@ -108,11 +110,12 @@ def parse_frame(buf: bytes) -> Event:
 
 @dataclass
 class Spectrum:
-    """One integration of the spectrometer (ADC channel 0)."""
+    """One integration of the spectrometer."""
 
     seq: int                   # integration sequence number (FPGA)
     n_spectra: int             # spectra accumulated
     subband: int               # coarse channel 0..16
+    adc_input: int             # ADC channel 0..7 (0 from servers before SPEC_INPUT)
     first: bool                # first integration after a restart (enable,
                                # subband or integration-time change); its data
                                # are all from after the change
@@ -156,11 +159,12 @@ class Spectrum:
 
 def parse_spec_frame(buf: bytes) -> Spectrum:
     (magic, ver, hdr, frame_bytes, flags, host_ns, end_sample, fs, seq, nspec, dropped, lost,
-     nchan, subband, restarts) = SPEC_HDR.unpack_from(buf, 0)
+     nchan, subband, adc_input, restarts) = SPEC_HDR.unpack_from(buf, 0)
     if magic != SPEC_MAGIC or hdr != 64 or nchan != SPEC_NCHAN:
         raise ValueError(f"bad spectrum header {magic!r}")
     power = np.frombuffer(buf, dtype="<u8", count=nchan, offset=64)
-    return Spectrum(seq=seq, n_spectra=nspec, subband=subband, first=bool(flags & SPEC_F_FIRST),
+    return Spectrum(seq=seq, n_spectra=nspec, subband=subband, adc_input=adc_input,
+                    first=bool(flags & SPEC_F_FIRST),
                     simulated=bool(flags & SPEC_F_SIM), lost=lost, dropped=dropped,
                     restarts=restarts, end_sample=end_sample, host_time_ns=host_ns,
                     sample_rate_hz=fs, power=power)

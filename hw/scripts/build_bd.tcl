@@ -15,7 +15,8 @@
 #   trigger_capture m_axis -> AXI DMA S2MM -> S_AXI_HP0 -> DDR
 #   FPGA_REFCLK_OUT 122.88 MHz -> MMCM -> clk_2x 491.52 / clk_1x 245.76 /
 #                                          clk_spec 122.88 MHz
-#   trigger_capture spec_word (ADC 0) -> spectrometer (PFB 16 ch -> DFB 4096 ch)
+#   trigger_capture spec_words (8 ADCs) -> spectrometer input select (INPUT reg)
+#                                          -> PFB 16 ch -> DFB 4096 ch
 #   PL SYSREF 7.68 MHz -> pl_sysref_sync -> RFDC user_sysref_adc
 # -----------------------------------------------------------------------------
 
@@ -166,7 +167,7 @@ set sp [create_bd_cell -type module -reference spectrometer_top spectrometer]
 connect_bd_net [get_bd_pins $cw/clk_1x] [get_bd_pins $sp/clk_1x]
 connect_bd_net [get_bd_pins $cw/clk_spec] [get_bd_pins $sp/clk_spec]
 connect_bd_net [get_bd_pins $rstsp/peripheral_aresetn] [get_bd_pins $sp/aresetn]
-connect_bd_net [get_bd_pins $tc/spec_word] [get_bd_pins $sp/din_1x]
+connect_bd_net [get_bd_pins $tc/spec_words] [get_bd_pins $sp/din_1x]
 connect_bd_net [get_bd_pins $tc/spec_ts] [get_bd_pins $sp/ts_1x]
 
 # ------------------------------------------------------------------ DMA -------
