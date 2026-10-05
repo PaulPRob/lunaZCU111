@@ -5,12 +5,12 @@ from __future__ import annotations
 import os
 import time
 
-from PyQt6.QtCore import QSettings, Qt, QTimer
+from PyQt6.QtCore import QSettings, QSize, Qt, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
                              QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                             QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
-                             QVBoxLayout, QWidget)
+                             QLayout, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+                             QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from lunaclient.protocol import (CTRL_PORT, DATA_PORT, NCH, SPEC_NINPUT, SPEC_NSUB,
                                  SPEC_PORT, SPECTRUM_S, SUBBAND_HZ)
@@ -37,6 +37,18 @@ def _fmt_rate(r: float) -> str:
     return f"{r:.1f}"
 
 
+def _compact(lay: QLayout, spacing: int = 4, margin: int = 5):
+    """Tighter spacing and margins for a layout and everything inside it."""
+    lay.setSpacing(min(lay.spacing(), spacing) if lay.spacing() >= 0 else spacing)
+    lay.setContentsMargins(margin, margin, margin, margin)
+    for i in range(lay.count()):
+        it = lay.itemAt(i)
+        if it.layout() is not None:
+            _compact(it.layout(), spacing, 0)
+        elif it.widget() is not None and it.widget().layout() is not None:
+            _compact(it.widget().layout(), spacing, margin)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -51,6 +63,7 @@ class MainWindow(QMainWindow):
         self.plotwin: PlotWindow | None = None
         self.srx: SpecReceiver | None = None
         self.specwin: SpecWindow | None = None
+        self._spec_link_err = ""        # spectrum port failure, shown until reconnected
         self.server_cfg: dict = {}
         self.server_spec: dict = {}          # spectrometer part of GET CONFIG
         self._prev_status: dict | None = None
@@ -62,7 +75,12 @@ class MainWindow(QMainWindow):
         right = QVBoxLayout()
         top.addLayout(left, 3)
         top.addLayout(right, 2)
-        self.setCentralWidget(central)
+        # on a screen too small for the window, scroll rather than squash rows
+        scroll = QScrollArea()
+        scroll.setWidget(central)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setCentralWidget(scroll)
 
         left.addWidget(self._build_connection())
         left.addWidget(self._build_trigger())
@@ -73,6 +91,7 @@ class MainWindow(QMainWindow):
         right.addWidget(self._build_record())
         right.addWidget(self._build_plot())
         right.addWidget(self._build_log(), 1)
+        _compact(top)
 
         self._set_connected_ui(False)
         self.timer = QTimer(self)
@@ -81,6 +100,10 @@ class MainWindow(QMainWindow):
         geo = self.qs.value("main/geometry")
         if geo is not None:
             self.restoreGeometry(geo)
+        else:                           # the scroll area hides the content's size
+            want = central.sizeHint() + QSize(24, 24)
+            scr = self.screen().availableGeometry()
+            self.resize(min(want.width(), scr.width()), min(want.height(), scr.height() - 40))
 
     # ============================================================ building
     def _build_connection(self):
@@ -525,9 +548,20 @@ class MainWindow(QMainWindow):
         self._toggle_spec_record(False)
         self.log(msg)
 
+    def _spec_link(self, srx, ok: bool, msg: str):
+        """Spectrum port up/down. Optional: a failure never disconnects the rest."""
+        self.log(msg)
+        if srx is not self.srx:
+            return
+        self._spec_link_err = "" if ok else msg
+        if self.specwin is not None:
+            self.specwin.set_link_error(self._spec_link_err)
+
     def _open_spectrum(self):
         if self.specwin is None:
             self.specwin = SpecWindow(self.qs)
+        self.specwin.set_link_error(self._spec_link_err if self.srx is not None
+                                    else "not connected")
         self.specwin.show()
         self.specwin.raise_()
         self.specwin.activateWindow()
@@ -563,7 +597,9 @@ class MainWindow(QMainWindow):
         self.rx.start()
         # the spectrum port is optional (older servers have none): log only
         self.srx = SpecReceiver(host, self.spec_port.value())
-        self.srx.connected.connect(lambda ok, m: self.log(m))
+        srx = self.srx
+        self._spec_link_err = ""
+        self.srx.connected.connect(lambda ok, m: self._spec_link(srx, ok, m))
         self.srx.spectrum.connect(self._on_spectrum)
         self.srx.rec_error.connect(self._spec_rec_error)
         self.srx.start()
@@ -763,7 +799,9 @@ class MainWindow(QMainWindow):
                     f"integrations {sp.get('integrations')} &nbsp; lost {sp.get('lost')} &nbsp; "
                     f"restarts {sp.get('restarts')} &nbsp; spectrum clients {sp.get('clients')}"
                     + (f" &nbsp; received {c.received}, missed {c.seq_gaps}" if c else "")
-                    + rec)
+                    + rec
+                    + (f' &nbsp; <b style="color:#c03030">{self._spec_link_err}</b>'
+                       if self._spec_link_err else ""))
         known = {"armed", "mode", "n", "window", "mask", "len", "banks_full", "capturing",
                  "triggers", "lost", "events", "clients", "sent", "dropped", "sample", "sysref",
                  "spec", "spectra"}

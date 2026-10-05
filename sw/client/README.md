@@ -54,6 +54,7 @@ uv sync --extra gui
 uv run lunaGUI                    # LUNA_HOST sets the default host
 uv run lunaGUI --connect --plots  # connect and open the plot window at start-up
 uv run lunaGUI --connect --spectrum  # ... and the spectrum window
+uv run lunaGUI --font-size 10      # default: 2 pt below the desktop font (or LUNA_GUI_FONT)
 ```
 
 **Main window**

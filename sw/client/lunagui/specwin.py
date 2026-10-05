@@ -162,6 +162,12 @@ class SpecWindow(QMainWindow):
         self._hist, self._wf, self._max = [], [], None
         self._dirty = True
 
+    def set_link_error(self, err: str):
+        """Spectrum port problem (empty = fine): shown until the first spectrum."""
+        if self._last is None:
+            self.info.setText(f'<b style="color:#c03030">no spectra: {err}</b>' if err
+                              else "waiting for spectra …")
+
     # ---------------------------------------------------------------- data
     def on_spectrum(self, s: Spectrum):
         if self.skip_first.isChecked() and s.first:
