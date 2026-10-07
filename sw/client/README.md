@@ -76,3 +76,5 @@ uv run lunaGUI --font-size 10      # default: 2 pt below the desktop font (or LU
 - The latest integration as mean power per 33.33 µs spectrum against absolute frequency (subband centre ± 61.44 MHz), in dB or linear, with its ADC, subband, integration time and peak.
 - Running average over N integrations, max hold, and a waterfall of the most recent integrations. The waterfall keeps the maximum of each group of 4 fine channels, so narrow lines stay visible.
 - The average, max hold and waterfall restart automatically when the input, subband or integration length changes. *Skip 'first after restart'* ignores the first integration after a change.
+
+To look through recorded events afterwards, use `lunaAnalyser` in `../lunaAnalyser`. It shows the same plots, with markers and PNG export.

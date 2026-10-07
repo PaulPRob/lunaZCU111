@@ -1,0 +1,20 @@
+[project]
+name = "lunaanalyser"
+version = "0.1.0"
+description = "Offline viewer for lunaZCU111 event recordings (.npz files from luna-client / lunaGUI)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["lunaclient[gui]"]
+
+[project.scripts]
+lunaAnalyser = "lunaanalyser.app:main"
+
+[tool.uv.sources]
+lunaclient = { path = "../client", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["lunaanalyser"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
