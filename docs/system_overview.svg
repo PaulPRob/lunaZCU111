@@ -1,7 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1130" viewBox="0 0 1800 1130"
+<svg xmlns="http://www.w3.org/2000/svg" width="2090" height="1300" viewBox="0 0 2090 1300"
      font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13">
   <defs>
     <marker id="ag" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="16" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2e7d32"/></marker>
+    <marker id="at" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="16" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#00796b"/></marker>
     <marker id="ao" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d17a00"/></marker>
     <marker id="ap" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6a3fa0"/></marker>
     <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c62828"/></marker>
@@ -18,12 +19,15 @@
       .soc{fill:#ffffff;stroke:#333;stroke-width:2}
       .plr{fill:#eef7ee;stroke:#2e7d32;stroke-width:1.6}
       .psr{fill:#f4effa;stroke:#6a3fa0;stroke-width:1.6}
+      .spr{fill:#e3f3f1;stroke:#00796b;stroke-width:1.6}
       .pl{fill:#ffffff;stroke:#2e7d32;stroke-width:1.6}
+      .sp{fill:#ffffff;stroke:#00796b;stroke-width:1.6}
       .ps{fill:#ffffff;stroke:#6a3fa0;stroke-width:1.6}
       .ck{fill:#fff4e5;stroke:#d17a00;stroke-width:1.6}
       .net{fill:#e8f1fb;stroke:#1565c0;stroke-width:1.6}
       .ext{fill:#ffffff;stroke:#1565c0;stroke-width:1.6}
       .data{stroke:#2e7d32;stroke-width:6;fill:none;marker-end:url(#ag)}
+      .sdat{stroke:#00796b;stroke-width:5;fill:none;marker-end:url(#at)}
       .clk{stroke:#d17a00;stroke-width:2.2;fill:none;marker-end:url(#ao)}
       .ctl{stroke:#6a3fa0;stroke-width:2.2;fill:none;stroke-dasharray:7 4;marker-end:url(#ap)}
       .irq{stroke:#c62828;stroke-width:2.4;fill:none;stroke-dasharray:3 3;marker-end:url(#ar)}
@@ -31,16 +35,17 @@
     </style>
   </defs>
 
-  <rect x="0" y="0" width="1800" height="1130" fill="#ffffff"/>
-  <text x="30" y="42" class="title">lunaZCU111 — 8-channel 3.93 GS/s transient trigger &amp; capture system</text>
-  <text x="30" y="66" class="sub">Xilinx ZCU111 (XCZU28DR RFSoC) · every sample of 8 RF inputs tested in real time · triggered 8-channel snapshots streamed over Ethernet</text>
+  <rect x="0" y="0" width="2090" height="1300" fill="#ffffff"/>
+  <text x="30" y="42" class="title">lunaZCU111 — 8-channel 3.93 GS/s transient trigger &amp; capture system with integrating spectrometer</text>
+  <text x="30" y="66" class="sub">Xilinx ZCU111 (XCZU28DR RFSoC) · every sample of 8 RF inputs tested in real time · triggered 8-channel snapshots and 30 kHz-resolution spectra of any one input streamed over Ethernet</text>
 
   <!-- ===================== status badge ===================== -->
-  <rect x="1440" y="18" width="340" height="56" rx="10" fill="#e3f2e4" stroke="#2e7d32" stroke-width="2"/>
-  <circle cx="1471" cy="46" r="15" fill="#2e7d32"/>
-  <path d="M1463,46 L1469,52 L1480,40" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="1497" y="41" class="bt" fill="#1b5e20">Verified on hardware</text>
-  <text x="1497" y="61" class="tx">October 2026 · capturing event data</text>
+  <rect x="1680" y="84" width="390" height="62" rx="10" fill="#e3f2e4" stroke="#2e7d32" stroke-width="2"/>
+  <circle cx="1711" cy="115" r="15" fill="#2e7d32"/>
+  <path d="M1703,115 L1709,121 L1720,109" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1737" y="108" class="bt" fill="#1b5e20">Trigger &amp; capture verified on hardware</text>
+  <text x="1737" y="128" class="tx">Oct 2026 · spectrometer: simulated + built,</text>
+  <text x="1737" y="142" class="tx" style="font-size:11.5px">board test pending (branch spectrometer)</text>
 
   <!-- ===================== RF inputs ===================== -->
   <rect x="20" y="205" width="105" height="120" rx="8" class="ext"/>
@@ -50,7 +55,7 @@
   <text x="72" y="302" class="tx" text-anchor="middle">ADC_00…07</text>
 
   <!-- ===================== board ===================== -->
-  <rect x="140" y="85" width="1265" height="985" rx="14" class="board"/>
+  <rect x="140" y="85" width="1515" height="1155" rx="14" class="board"/>
   <text x="160" y="110" class="reg" fill="#444">ZCU111 evaluation board</text>
 
   <!-- clocking -->
@@ -66,19 +71,19 @@
   <text x="175" y="590" class="lbl">(TICS Pro register tables)</text>
 
   <!-- SD card -->
-  <rect x="160" y="950" width="300" height="95" rx="8" class="ext"/>
-  <text x="175" y="975" class="bt">SD card</text>
-  <text x="175" y="997" class="tx">BOOT.BIN (FSBL, bitstream, U-Boot)</text>
-  <text x="175" y="1015" class="tx">image.ub (Linux + root file system)</text>
-  <text x="175" y="1033" class="tx">lunaserver.conf (saved settings)</text>
+  <rect x="160" y="1110" width="300" height="95" rx="8" class="ext"/>
+  <text x="175" y="1135" class="bt">SD card</text>
+  <text x="175" y="1157" class="tx">BOOT.BIN (FSBL, bitstream, U-Boot)</text>
+  <text x="175" y="1175" class="tx">image.ub (Linux + root file system)</text>
+  <text x="175" y="1193" class="tx">lunaserver.conf (saved settings)</text>
 
   <!-- ===================== RFSoC ===================== -->
-  <rect x="490" y="120" width="895" height="935" rx="12" class="soc"/>
+  <rect x="490" y="120" width="1150" height="1105" rx="12" class="soc"/>
   <text x="505" y="145" class="reg">XCZU28DR Zynq UltraScale+ RFSoC</text>
 
   <!-- PL region -->
-  <rect x="505" y="158" width="865" height="455" rx="10" class="plr"/>
-  <text x="520" y="180" class="reg" fill="#2e7d32">Programmable Logic (PL) — VHDL + Xilinx IP</text>
+  <rect x="505" y="158" width="1120" height="672" rx="10" class="plr"/>
+  <text x="520" y="180" class="reg" fill="#2e7d32">Programmable Logic (PL) — VHDL + Xilinx IP + CSIRO filter-bank cores</text>
 
   <rect x="520" y="200" width="180" height="135" rx="8" class="pl"/>
   <text x="532" y="222" class="bt">RF Data Converter</text>
@@ -131,109 +136,194 @@
   <text x="902" y="469" class="tx">L = 16384 (programmable 4096 … 16384), all 8 channels simultaneously</text>
   <text x="902" y="489" class="tx">next bank armed immediately → new events while older ones are read</text>
 
-  <rect x="520" y="540" width="250" height="55" rx="8" class="ck"/>
-  <text x="532" y="562" class="bt">MMCM clocking</text>
-  <text x="532" y="582" class="tx">491.52 / 245.76 MHz from 122.88</text>
-  <rect x="790" y="540" width="215" height="55" rx="8" class="ck"/>
-  <text x="802" y="562" class="bt">SYSREF capture</text>
-  <text x="802" y="582" class="tx">aligns tiles for MTS</text>
+  <rect x="520" y="545" width="270" height="72" rx="8" class="ck"/>
+  <text x="532" y="567" class="bt">MMCM clocking (from 122.88)</text>
+  <text x="532" y="587" class="tx">491.52 / 245.76 MHz: trigger</text>
+  <text x="532" y="605" class="tx">122.88 MHz clk_spec: spectrometer</text>
+  <rect x="520" y="632" width="270" height="55" rx="8" class="ck"/>
+  <text x="532" y="654" class="bt">SYSREF capture</text>
+  <text x="532" y="674" class="tx">aligns tiles for MTS</text>
+
+  <!-- spectrometer -->
+  <rect x="895" y="530" width="700" height="285" rx="10" class="spr"/>
+  <text x="910" y="553" class="reg" fill="#00796b">Integrating spectrometer — any one of the 8 ADCs, clk_spec 122.88 MHz</text>
+
+  <rect x="1365" y="567" width="215" height="100" rx="8" class="sp"/>
+  <text x="1377" y="589" class="bt">Input select</text>
+  <text x="1377" y="610" class="tx">INPUT register: 1 of 8</text>
+  <text x="1377" y="628" class="tx">(default ADC 0)</text>
+  <text x="1377" y="648" class="tx">→ 32 samples @ 122.88</text>
+
+  <rect x="1137" y="567" width="208" height="100" rx="8" class="sp"/>
+  <text x="1149" y="589" class="bt">Coarse filter bank</text>
+  <text x="1149" y="610" class="tx">16-channel polyphase</text>
+  <text x="1149" y="628" class="tx">17 subbands × 122.88 MHz</text>
+  <text x="1149" y="648" class="tx">centred on k × 122.88</text>
+
+  <rect x="910" y="567" width="207" height="100" rx="8" class="sp"/>
+  <text x="922" y="589" class="bt">Subband select</text>
+  <text x="922" y="610" class="tx">SUBBAND 0 … 16</text>
+  <text x="922" y="628" class="tx">default 12 = 1474.56</text>
+  <text x="922" y="646" class="tx">± 61.44 MHz</text>
+
+  <rect x="910" y="700" width="207" height="100" rx="8" class="sp"/>
+  <text x="922" y="722" class="bt">Fine filter bank</text>
+  <text x="922" y="743" class="tx">4096 channels × 30 kHz</text>
+  <text x="922" y="761" class="tx">one spectrum</text>
+  <text x="922" y="779" class="tx">every 33.33 µs</text>
+
+  <rect x="1137" y="700" width="208" height="100" rx="8" class="sp"/>
+  <text x="1149" y="722" class="bt">Power integration</text>
+  <text x="1149" y="743" class="tx">|X|² summed (64 bit)</text>
+  <text x="1149" y="761" class="tx">default 6.000 s</text>
+  <text x="1149" y="779" class="tx">restart on any change</text>
+
+  <rect x="1365" y="700" width="215" height="100" rx="8" class="sp"/>
+  <text x="1377" y="722" class="bt">Spectrum memory</text>
+  <text x="1377" y="743" class="tx">2 banks × 4096 × 64 bit</text>
+  <text x="1377" y="761" class="tx">(UltraRAM)</text>
+  <text x="1377" y="779" class="tx">interrupt when full</text>
+
+  <path d="M1363,617 L1349,617" class="sdat"/>
+  <path d="M1135,617 L1121,617" class="sdat"/>
+  <path d="M1013,667 L1013,696" class="sdat"/>
+  <path d="M1117,750 L1133,750" class="sdat"/>
+  <path d="M1345,750 L1361,750" class="sdat"/>
 
   <!-- PS region -->
-  <rect x="505" y="640" width="865" height="400" rx="10" class="psr"/>
-  <text x="712" y="662" class="reg" fill="#6a3fa0">Processing System (PS) — ARM Cortex-A53 ×4, Linux</text>
+  <rect x="505" y="860" width="1120" height="365" rx="10" class="psr"/>
+  <text x="520" y="1216" class="reg" fill="#6a3fa0">Processing System (PS) — ARM Cortex-A53 ×4, Linux</text>
 
-  <rect x="520" y="680" width="180" height="110" rx="8" class="ps"/>
-  <text x="532" y="702" class="bt">DDR4 memory</text>
-  <text x="532" y="724" class="tx">16 MiB reserved</text>
-  <text x="532" y="742" class="tx">DMA event buffer</text>
+  <rect x="520" y="900" width="180" height="290" rx="8" class="ps"/>
+  <text x="532" y="922" class="bt">Linux kernel</text>
+  <text x="532" y="944" class="tx">UIO drivers:</text>
+  <text x="542" y="962" class="tx">registers, IRQs,</text>
+  <text x="542" y="980" class="tx">DMA, buffer,</text>
+  <text x="542" y="998" class="tx">spectrometer</text>
+  <text x="532" y="1020" class="tx">libmetal / librfdc</text>
+  <text x="532" y="1040" class="tx">i2c-dev</text>
+  <text x="532" y="1060" class="tx">network stack</text>
+  <text x="532" y="1080" class="tx">systemd service</text>
 
-  <rect x="520" y="810" width="180" height="215" rx="8" class="ps"/>
-  <text x="532" y="832" class="bt">Linux kernel</text>
-  <text x="532" y="854" class="tx">UIO drivers:</text>
-  <text x="542" y="872" class="tx">registers, IRQ,</text>
-  <text x="542" y="890" class="tx">DMA, buffer</text>
-  <text x="532" y="912" class="tx">libmetal / librfdc</text>
-  <text x="532" y="932" class="tx">i2c-dev</text>
-  <text x="532" y="952" class="tx">network stack</text>
-  <text x="532" y="972" class="tx">systemd service</text>
+  <rect x="720" y="900" width="180" height="110" rx="8" class="ps"/>
+  <text x="732" y="922" class="bt">DDR4 memory</text>
+  <text x="732" y="944" class="tx">16 MiB reserved</text>
+  <text x="732" y="962" class="tx">DMA event buffer</text>
 
-  <rect x="722" y="680" width="468" height="345" rx="8" class="ps"/>
-  <text x="736" y="703" class="bt">lunaserver (C) — capture &amp; network server</text>
-  <rect x="736" y="717" width="215" height="90" rx="6" class="ps"/>
-  <text x="746" y="738" class="bt" style="font-size:13px">Clock setup</text>
-  <text x="746" y="758" class="tx">program LMK04208 +</text>
-  <text x="746" y="776" class="tx">LMX2594 at start-up,</text>
-  <text x="746" y="794" class="tx">reset MMCM, wait lock</text>
-  <rect x="736" y="817" width="215" height="90" rx="6" class="ps"/>
-  <text x="746" y="838" class="bt" style="font-size:13px">RF converter start-up</text>
-  <text x="746" y="858" class="tx">tile PLL lock check,</text>
-  <text x="746" y="876" class="tx">multi-tile sync,</text>
-  <text x="746" y="894" class="tx">RESYNC on request</text>
-  <rect x="736" y="917" width="215" height="95" rx="6" class="ps"/>
-  <text x="746" y="938" class="bt" style="font-size:13px">Configuration</text>
-  <text x="746" y="958" class="tx">apply to registers,</text>
-  <text x="746" y="976" class="tx">load / SAVE to</text>
-  <text x="746" y="994" class="tx">lunaserver.conf</text>
+  <rect x="920" y="900" width="576" height="290" rx="8" class="ps"/>
+  <text x="932" y="922" class="bt">lunaserver (C)</text>
+  <!-- column 1 -->
+  <rect x="932" y="935" width="176" height="78" rx="6" class="ps"/>
+  <text x="942" y="955" class="bt" style="font-size:13px">Event readout</text>
+  <text x="942" y="974" class="tx">on trigger interrupt:</text>
+  <text x="942" y="992" class="tx">DMA → copy → free</text>
+  <text x="942" y="1008" class="tx">bank (4 banks queue)</text>
+  <rect x="932" y="1021" width="176" height="78" rx="6" class="ps"/>
+  <text x="942" y="1041" class="bt" style="font-size:13px">Clock setup</text>
+  <text x="942" y="1060" class="tx">LMK04208 + LMX2594</text>
+  <text x="942" y="1078" class="tx">at start-up; reset</text>
+  <text x="942" y="1094" class="tx">MMCM, wait for lock</text>
+  <rect x="932" y="1107" width="176" height="75" rx="6" class="ps"/>
+  <text x="942" y="1127" class="bt" style="font-size:13px">RF converter start-up</text>
+  <text x="942" y="1146" class="tx">tile PLL lock check,</text>
+  <text x="942" y="1164" class="tx">MTS, RESYNC</text>
+  <!-- column 2 -->
+  <rect x="1120" y="935" width="176" height="78" rx="6" class="ps"/>
+  <text x="1130" y="955" class="bt" style="font-size:13px">Spectrum readout</text>
+  <text x="1130" y="974" class="tx">on spectrometer IRQ:</text>
+  <text x="1130" y="992" class="tx">read bank (≈ 3 ms)</text>
+  <text x="1130" y="1008" class="tx">→ free bank</text>
+  <rect x="1120" y="1021" width="176" height="78" rx="6" class="ps"/>
+  <text x="1130" y="1041" class="bt" style="font-size:13px">Configuration</text>
+  <text x="1130" y="1060" class="tx">apply to registers,</text>
+  <text x="1130" y="1078" class="tx">load / SAVE to</text>
+  <text x="1130" y="1094" class="tx">lunaserver.conf</text>
+  <rect x="1120" y="1107" width="176" height="75" rx="6" class="ps"/>
+  <text x="1130" y="1127" class="bt" style="font-size:13px">Monitoring</text>
+  <text x="1130" y="1146" class="tx">peaks, hit rates, clock</text>
+  <text x="1130" y="1164" class="tx">/ MTS status, counters</text>
+  <!-- column 3 -->
+  <rect x="1308" y="935" width="176" height="78" rx="6" class="ps"/>
+  <text x="1318" y="955" class="bt" style="font-size:13px">Event server 5000</text>
+  <text x="1318" y="974" class="tx">every event to all</text>
+  <text x="1318" y="992" class="tx">clients; per-client</text>
+  <text x="1318" y="1008" class="tx">queue, never blocks</text>
+  <rect x="1308" y="1021" width="176" height="78" rx="6" class="ps"/>
+  <text x="1318" y="1041" class="bt" style="font-size:13px">Spectrum server 5002</text>
+  <text x="1318" y="1060" class="tx">every integration to</text>
+  <text x="1318" y="1078" class="tx">all clients (32 KiB</text>
+  <text x="1318" y="1094" class="tx">each), never blocks</text>
+  <rect x="1308" y="1107" width="176" height="75" rx="6" class="ps"/>
+  <text x="1318" y="1127" class="bt" style="font-size:13px">Control server 5001</text>
+  <text x="1318" y="1146" class="tx">SET … / SPEC … /</text>
+  <text x="1318" y="1164" class="tx">STATUS / SAVE …</text>
 
-  <rect x="963" y="717" width="215" height="90" rx="6" class="ps"/>
-  <text x="973" y="738" class="bt" style="font-size:13px">Event readout</text>
-  <text x="973" y="758" class="tx">on trigger interrupt:</text>
-  <text x="973" y="776" class="tx">DMA → copy → free bank</text>
-  <text x="973" y="794" class="tx">(4 banks queue events)</text>
-  <rect x="963" y="817" width="215" height="90" rx="6" class="ps"/>
-  <text x="973" y="838" class="bt" style="font-size:13px">Data server  TCP 5000</text>
-  <text x="973" y="858" class="tx">pushes every event to</text>
-  <text x="973" y="876" class="tx">all clients; per-client</text>
-  <text x="973" y="894" class="tx">queue, never blocks</text>
-  <rect x="963" y="917" width="215" height="95" rx="6" class="ps"/>
-  <text x="973" y="938" class="bt" style="font-size:13px">Control server TCP 5001</text>
-  <text x="973" y="958" class="tx">text commands:</text>
-  <text x="973" y="976" class="tx">SET THRESH / MODE / N /</text>
-  <text x="973" y="994" class="tx">WINDOW / MASK / LEN …</text>
-
-  <rect x="1210" y="740" width="148" height="230" rx="8" class="net"/>
-  <text x="1284" y="770" class="bt" text-anchor="middle">GEM3</text>
-  <text x="1284" y="792" class="tx" text-anchor="middle">Ethernet MAC</text>
-  <text x="1284" y="812" class="tx" text-anchor="middle">1 Gb/s</text>
-  <text x="1284" y="850" class="bt" text-anchor="middle" style="font-size:13px">192.168.2.10</text>
-  <text x="1284" y="890" class="tx" text-anchor="middle">~400 events/s</text>
-  <text x="1284" y="908" class="tx" text-anchor="middle">at 16384</text>
-  <text x="1284" y="926" class="tx" text-anchor="middle">samples</text>
+  <rect x="1512" y="935" width="100" height="247" rx="8" class="net"/>
+  <text x="1562" y="962" class="bt" text-anchor="middle">GEM3</text>
+  <text x="1562" y="982" class="tx" text-anchor="middle">Ethernet</text>
+  <text x="1562" y="998" class="tx" text-anchor="middle">MAC</text>
+  <text x="1562" y="1016" class="tx" text-anchor="middle">1 Gb/s</text>
+  <text x="1562" y="1050" class="bt" text-anchor="middle" style="font-size:12px">192.168.</text>
+  <text x="1562" y="1066" class="bt" text-anchor="middle" style="font-size:12px">2.10</text>
+  <text x="1562" y="1100" class="tx" text-anchor="middle">~400</text>
+  <text x="1562" y="1116" class="tx" text-anchor="middle">events/s</text>
+  <text x="1562" y="1132" class="tx" text-anchor="middle">at 16384</text>
+  <text x="1562" y="1148" class="tx" text-anchor="middle">samples</text>
 
   <!-- ===================== client side ===================== -->
-  <rect x="1440" y="150" width="340" height="235" rx="10" class="ext"/>
-  <text x="1455" y="175" class="bt">Event frame (TCP 5000)</text>
-  <rect x="1455" y="190" width="310" height="36" fill="#e8f1fb" stroke="#1565c0"/>
-  <text x="1465" y="213" class="tx">frame header 64 B — time, thresholds</text>
-  <rect x="1455" y="226" width="310" height="54" fill="#eef7ee" stroke="#2e7d32"/>
-  <text x="1465" y="248" class="tx">event header 64 B — sequence no.,</text>
-  <text x="1465" y="266" class="tx">trigger sample, channel mask, offset</text>
-  <rect x="1455" y="280" width="310" height="54" fill="#ffffff" stroke="#555"/>
-  <text x="1465" y="302" class="tx">samples int16 [8 channels][L]</text>
-  <text x="1465" y="320" class="tx">trigger at index ≈ L/2</text>
-  <text x="1455" y="366" class="lbl">≈ 256 KiB per event at L = 16384</text>
+  <rect x="1690" y="165" width="380" height="225" rx="10" class="ext"/>
+  <text x="1705" y="190" class="bt">Event frame (TCP 5000)</text>
+  <rect x="1705" y="203" width="350" height="34" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="1715" y="225" class="tx">frame header 64 B — time, thresholds</text>
+  <rect x="1705" y="237" width="350" height="52" fill="#eef7ee" stroke="#2e7d32"/>
+  <text x="1715" y="258" class="tx">event header 64 B — sequence no.,</text>
+  <text x="1715" y="276" class="tx">trigger sample, channel mask, offset</text>
+  <rect x="1705" y="289" width="350" height="52" fill="#ffffff" stroke="#555"/>
+  <text x="1715" y="310" class="tx">samples int16 [8 channels][L]</text>
+  <text x="1715" y="328" class="tx">trigger at index ≈ L/2</text>
+  <text x="1705" y="370" class="lbl">≈ 256 KiB per event at L = 16384</text>
 
-  <rect x="1440" y="640" width="340" height="385" rx="10" class="ext"/>
-  <text x="1455" y="667" class="bt">Client PC — Python lunaclient</text>
-  <rect x="1455" y="685" width="310" height="92" rx="6" fill="#e8f1fb" stroke="#1565c0"/>
-  <text x="1467" y="707" class="bt" style="font-size:13px">EventStream  ← port 5000</text>
-  <text x="1467" y="729" class="tx">receives every event as a numpy</text>
-  <text x="1467" y="747" class="tx">array (8 × L) + trigger metadata</text>
-  <text x="1467" y="765" class="tx">record to .npz / on_event() hook</text>
-  <rect x="1455" y="790" width="310" height="92" rx="6" fill="#f4effa" stroke="#6a3fa0"/>
-  <text x="1467" y="812" class="bt" style="font-size:13px">Control  → port 5001</text>
-  <text x="1467" y="834" class="tx">set thresholds, mode, N, window,</text>
-  <text x="1467" y="852" class="tx">mask, length; ARM / SOFTTRIG;</text>
-  <text x="1467" y="870" class="tx">read peaks / rates / status</text>
-  <rect x="1455" y="895" width="310" height="115" rx="6" fill="#ffffff" stroke="#555"/>
-  <text x="1467" y="917" class="bt" style="font-size:13px">User analysis / monitoring</text>
-  <text x="1467" y="939" class="tx">both connections open at once:</text>
-  <text x="1467" y="957" class="tx">thresholds can be adjusted while</text>
-  <text x="1467" y="975" class="tx">events stream (e.g. rate servo)</text>
-  <text x="1467" y="995" class="tx">luna-client CLI: status/set/record</text>
+  <rect x="1690" y="410" width="380" height="200" rx="10" class="ext"/>
+  <text x="1705" y="435" class="bt">Spectrum frame (TCP 5002)</text>
+  <rect x="1705" y="448" width="350" height="70" fill="#e3f3f1" stroke="#00796b"/>
+  <text x="1715" y="469" class="tx">header 64 B — sequence no., ADC input,</text>
+  <text x="1715" y="487" class="tx">subband, number of spectra, end sample,</text>
+  <text x="1715" y="505" class="tx">flags (first after restart), lost, dropped</text>
+  <rect x="1705" y="518" width="350" height="52" fill="#ffffff" stroke="#555"/>
+  <text x="1715" y="539" class="tx">power uint64 [4096]</text>
+  <text x="1715" y="557" class="tx">30 kHz channels, FFT order</text>
+  <text x="1705" y="594" class="lbl">32 KiB per integration (default every 6 s)</text>
+
+  <rect x="1690" y="660" width="380" height="565" rx="10" class="ext"/>
+  <text x="1705" y="687" class="bt">Client PC — Python lunaclient</text>
+  <rect x="1705" y="702" width="350" height="76" rx="6" fill="#e8f1fb" stroke="#1565c0"/>
+  <text x="1717" y="723" class="bt" style="font-size:13px">EventStream  ← port 5000</text>
+  <text x="1717" y="743" class="tx">each event as a numpy array (8 × L)</text>
+  <text x="1717" y="761" class="tx">+ trigger metadata; on_event() hook</text>
+  <rect x="1705" y="788" width="350" height="76" rx="6" fill="#e3f3f1" stroke="#00796b"/>
+  <text x="1717" y="809" class="bt" style="font-size:13px">SpectrumStream  ← port 5002</text>
+  <text x="1717" y="829" class="tx">each integration with its frequency</text>
+  <text x="1717" y="847" class="tx">axis and mean power per spectrum</text>
+  <rect x="1705" y="874" width="350" height="76" rx="6" fill="#f4effa" stroke="#6a3fa0"/>
+  <text x="1717" y="895" class="bt" style="font-size:13px">Control  → port 5001</text>
+  <text x="1717" y="915" class="tx">trigger settings, ARM / SOFTTRIG, peaks;</text>
+  <text x="1717" y="933" class="tx">spectrometer on/off, input, subband, tint</text>
+  <rect x="1705" y="960" width="350" height="250" rx="6" fill="#ffffff" stroke="#555"/>
+  <text x="1717" y="982" class="bt" style="font-size:13px">Applications</text>
+  <text x="1717" y="1004" class="tx">luna-client: status / set / watch /</text>
+  <text x="1727" y="1022" class="tx">record events to .npz</text>
+  <text x="1717" y="1044" class="tx">luna-spec: status / set / watch /</text>
+  <text x="1727" y="1062" class="tx">record spectra / live plot</text>
+  <text x="1717" y="1084" class="tx">lunaGUI (PyQt6): control panel incl.</text>
+  <text x="1727" y="1102" class="tx">spectrometer, live event plots,</text>
+  <text x="1727" y="1120" class="tx">spectrum window, recording</text>
+  <text x="1717" y="1142" class="tx">lunaAnalyser (PyQt6): offline viewer</text>
+  <text x="1727" y="1160" class="tx">for recorded events, markers, PNG</text>
+  <text x="1717" y="1186" class="tx">all ports open at once: settings can</text>
+  <text x="1717" y="1202" class="tx">change while data streams</text>
 
   <!-- ===================== connections ===================== -->
-  <!-- RF data path -->
+  <!-- RF / trigger data path -->
   <path d="M125,265 L516,265" class="data"/>
   <path d="M700,265 L718,265" class="data"/>
   <path d="M882,265 L900,265" class="data"/>
@@ -243,41 +333,57 @@
   <path d="M1220,335 L1220,381" class="data" style="stroke-width:4"/>
   <text x="1228" y="363" class="lbl">trigger (time, channels)</text>
   <path d="M890,445 L864,445" class="data"/>
-  <path d="M685,505 L685,676" class="data"/>
-  <text x="692" y="628" class="lbl">DMA</text>
+  <path d="M830,505 L830,896" class="data"/>
+  <text x="838" y="845" class="lbl">DMA</text>
+  <path d="M900,955 L928,955" class="data" style="stroke-width:4"/>
+
+  <!-- spectrometer input: all 8 gearbox outputs -->
+  <path d="M800,200 L800,193 L1607,193 L1607,617 L1584,617" class="sdat"/>
+  <text x="1596" y="262" class="lbl" text-anchor="end">8 channels × 16 samples</text>
+  <text x="1596" y="279" class="lbl" text-anchor="end">@ 245.76 MHz → spectrometer</text>
+  <!-- spectrum readout -->
+  <path d="M1472,800 L1472,842 L1250,842 L1250,931" class="sdat" style="stroke-width:4"/>
+  <path d="M1440,800 L1440,852 L1290,852 L1290,931" class="irq"/>
+  <text x="1302" y="878" class="lbl">spectrum read (AXI-Lite) + interrupt</text>
 
   <!-- clocks -->
   <path d="M310,385 L310,360 L610,360 L610,339" class="clk"/>
   <text x="318" y="352" class="lbl">245.76 MHz ref + SYSREF</text>
-  <path d="M460,567 L516,567" class="clk"/>
-  <text x="463" y="560" class="lbl">122.88</text>
+  <path d="M460,580 L516,580" class="clk"/>
+  <text x="463" y="573" class="lbl">122.88</text>
 
   <!-- control -->
-  <path d="M520,915 L310,915 L310,610" class="ctl"/>
-  <text x="320" y="890" class="lbl">I2C (clock programming)</text>
-  <path d="M460,997 L516,997" class="ctl"/>
-  <text x="462" y="990" class="lbl">boot</text>
-  <path d="M780,678 L780,522 L585,522 L585,509" class="ctl"/>
-  <text x="786" y="630" class="lbl">AXI-Lite (UIO)</text>
-  <path d="M1290,505 L1290,560 L1198,560 L1198,760 L1182,760" class="irq"/>
-  <text x="1040" y="578" class="lbl">interrupt: event ready</text>
-  <path d="M700,735 L732,735" class="data" style="stroke-width:4"/>
+  <path d="M520,1100 L310,1100 L310,610" class="ctl"/>
+  <text x="320" y="1075" class="lbl">I2C (clock programming)</text>
+  <path d="M460,1157 L516,1157" class="ctl"/>
+  <text x="462" y="1150" class="lbl">boot</text>
+  <path d="M690,898 L690,842 L810,842 L810,522 L585,522 L585,509" class="ctl"/>
+  <text x="600" y="836" class="lbl">AXI-Lite (UIO)</text>
+  <path d="M1180,931 L1180,804" class="ctl"/>
+  <text x="1060" y="836" class="lbl">AXI-Lite: input,</text>
+  <text x="1060" y="852" class="lbl">subband, time</text>
+  <path d="M905,505 L905,520 L872,520 L872,880 L1080,880 L1080,931" class="irq"/>
+  <text x="880" y="874" class="lbl" fill="#c62828">interrupt: event ready</text>
 
   <!-- network -->
-  <path d="M1178,862 L1206,862" class="ctl" style="stroke:#1565c0;marker-end:url(#abs);stroke-dasharray:none"/>
-  <path d="M1206,962 L1178,962" class="ctl" style="stroke:#1565c0;marker-end:url(#abs);stroke-dasharray:none;marker-start:url(#abs)"/>
-  <path d="M1368,855 L1432,855" class="eth"/>
-  <text x="1400" y="835" class="bt" text-anchor="middle" style="font-size:12.5px">1 GbE</text>
-  <path d="M1610,640 L1610,392" class="ctl" style="stroke:#1565c0;stroke-dasharray:4 4;marker-end:url(#abs)"/>
+  <path d="M1484,974 L1508,974" class="ctl" style="stroke:#1565c0;marker-end:url(#abs);stroke-dasharray:none"/>
+  <path d="M1484,1060 L1508,1060" class="ctl" style="stroke:#1565c0;marker-end:url(#abs);stroke-dasharray:none"/>
+  <path d="M1508,1144 L1484,1144" class="ctl" style="stroke:#1565c0;marker-end:url(#abs);stroke-dasharray:none;marker-start:url(#abs)"/>
+  <path d="M1616,1060 L1686,1060" class="eth"/>
+  <text x="1651" y="1092" class="bt" text-anchor="middle" style="font-size:12.5px">1 GbE</text>
+  <path d="M1880,660 L1880,616" class="ctl" style="stroke:#1565c0;stroke-dasharray:4 4;marker-end:url(#abs)"/>
+  <path d="M2050,660 L2050,640 L2080,640 L2080,300 L2074,300" class="ctl" style="stroke:#1565c0;stroke-dasharray:4 4;marker-end:url(#abs)"/>
 
   <!-- ===================== legend ===================== -->
-  <g transform="translate(140,1095)">
+  <g transform="translate(140,1272)">
     <path d="M0,0 L45,0" class="data" style="stroke-width:5"/><text x="55" y="5" class="tx">sample / event data</text>
-    <path d="M220,0 L265,0" class="clk"/><text x="275" y="5" class="tx">clocks</text>
-    <path d="M360,0 L405,0" class="ctl"/><text x="415" y="5" class="tx">control / configuration</text>
-    <path d="M600,0 L645,0" class="irq"/><text x="655" y="5" class="tx">interrupt</text>
-    <path d="M760,0 L805,0" class="eth" style="stroke-width:6"/><text x="818" y="5" class="tx">Ethernet (TCP)</text>
-    <rect x="960" y="-9" width="18" height="18" class="pl"/><text x="985" y="5" class="tx">PL (FPGA fabric)</text>
-    <rect x="1130" y="-9" width="18" height="18" class="ps"/><text x="1155" y="5" class="tx">PS software</text>
+    <path d="M200,0 L245,0" class="sdat"/><text x="255" y="5" class="tx">spectrometer data</text>
+    <path d="M400,0 L445,0" class="clk"/><text x="455" y="5" class="tx">clocks</text>
+    <path d="M530,0 L575,0" class="ctl"/><text x="585" y="5" class="tx">control / configuration</text>
+    <path d="M760,0 L805,0" class="irq"/><text x="815" y="5" class="tx">interrupt</text>
+    <path d="M910,0 L955,0" class="eth" style="stroke-width:6"/><text x="968" y="5" class="tx">Ethernet (TCP)</text>
+    <rect x="1100" y="-9" width="18" height="18" class="pl"/><text x="1125" y="5" class="tx">PL (FPGA fabric)</text>
+    <rect x="1250" y="-9" width="18" height="18" class="sp"/><text x="1275" y="5" class="tx">PL spectrometer</text>
+    <rect x="1405" y="-9" width="18" height="18" class="ps"/><text x="1430" y="5" class="tx">PS software</text>
   </g>
 </svg>
