@@ -256,6 +256,7 @@ begin
     inject(0, x"08", 50, x"20");                      -- ch3 then veto ch5
     wait_cycles(300);
     assert irq = '0' report "TB: veto did not block" severity failure;
+    wait_cycles(400);                                 -- keep these pulses out of the next L/2 pre-trigger
     inject(0, x"08", -1000000, x"00");                -- ch3 alone
     if irq /= '1' then wait until irq = '1'; end if;
     log("EVT 16384 2 8 0 133");                       -- veto byte 0x85
