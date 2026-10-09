@@ -47,6 +47,8 @@ entity capture_ctrl is
     cfg_win       : in  unsigned(7 downto 0);
     cfg_n         : in  unsigned(3 downto 0);
     cfg_mode      : in  std_logic;
+    cfg_veto_en   : in  std_logic;
+    cfg_veto_ch   : in  unsigned(2 downto 0);
     -- control
     flush         : in  std_logic;
     rd_start      : in  std_logic;
@@ -97,6 +99,8 @@ architecture rtl of capture_ctrl is
   signal h_win   : u8_nb_t;
   signal h_n     : u4_nb_t;
   signal h_mode  : std_logic_vector(NB-1 downto 0);
+  type veto_arr_t is array (0 to NB-1) of std_logic_vector(7 downto 0);
+  signal h_veto  : veto_arr_t;                 -- bit7 enable, [2:0] channel
 
   -- bank state
   signal head         : unsigned(NB_LOG2-1 downto 0) := (others => '0');
@@ -242,6 +246,7 @@ begin
           h_win(ai)    <= cfg_win;
           h_n(ai)      <= cfg_n;
           h_mode(ai)   <= cfg_mode;
+          h_veto(ai)   <= cfg_veto_en & "0000" & std_logic_vector(cfg_veto_ch);
           seq_cnt      <= seq_cnt + 1;
           trig_cnt     <= trig_cnt + 1;
         else
@@ -312,10 +317,11 @@ begin
                     & std_logic_vector(h_trig(b))                                -- trigger sample
                     & std_logic_vector(resize(h_len(b) & "0000", 32))            -- n samples
                     & std_logic_vector(h_seq(b))                                 -- event seq
-                    & x"0040" & x"0001"                                          -- hdr bytes, version
+                    & x"0040" & x"0002"                                          -- hdr bytes, version
                     & x"414E554C";                                               -- "LUNA"
             -- header word 1 (bytes 32..63)
-            hdr1 <= std_logic_vector(to_unsigned(0, 96))
+            hdr1 <= std_logic_vector(to_unsigned(0, 88))
+                    & h_veto(b)                                                  -- veto
                     & std_logic_vector(h_tcnt(b))                                -- trigger count
                     & std_logic_vector(h_lost(b))                                -- lost count
                     & "0000000" & h_mode(b)                                      -- mode

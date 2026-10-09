@@ -242,6 +242,27 @@ begin
     wait_cycles(300);
     assert irq = '0' report "TB: anti-coincidence fired on 2 channels" severity failure;
 
+    -- ---------------- event 2b : anti-coincidence with veto on ch5 -----------
+    -- ch5 is the veto and is NOT in CH_MASK: it still blocks, never triggers
+    axi_write(16#01C#, x"000000DF");
+    axi_write(16#0A8#, x"00000105");                  -- VETO enable, ch5
+    axi_read(16#0A8#, d);
+    assert d = x"00000105" report "TB: VETO readback" severity failure;
+    axi_read(16#004#, d);
+    assert d = x"00020104" report "TB: VERSION" severity failure;
+    inject(0, x"20", -1000000, x"00");                -- veto channel alone
+    wait_cycles(300);
+    assert irq = '0' report "TB: veto channel started a trigger" severity failure;
+    inject(0, x"08", 50, x"20");                      -- ch3 then veto ch5
+    wait_cycles(300);
+    assert irq = '0' report "TB: veto did not block" severity failure;
+    inject(0, x"08", -1000000, x"00");                -- ch3 alone
+    if irq /= '1' then wait until irq = '1'; end if;
+    log("EVT 16384 2 8 0 133");                       -- veto byte 0x85
+    readout_one;
+    axi_write(16#0A8#, x"00000000");
+    axi_write(16#01C#, x"000000FF");
+
     -- ---------------- events 3..7 : fill all banks, one lost -----------------
     axi_write(16#020#, std_logic_vector(to_unsigned(4096, 32)));
     axi_write(16#010#, x"00000000");

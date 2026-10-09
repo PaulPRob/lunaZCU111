@@ -28,20 +28,23 @@ fail=0
 if [[ "$WHAT" == trig || "$WHAT" == all || "$WHAT" == full ]]; then
   run xvhdl --relax "$HERE/tb_trig.vhd"
   run xelab -relax -debug off tb_trig -s tb_trig
-  # mode N W mask
+  # mode N W mask veto   (veto = channel, -1 = none; used in anti-coincidence only)
   CFGS=(
-    "0 1 64 255" "0 2 64 255" "0 3 64 255" "0 4 64 255" "0 5 64 255"
-    "0 6 64 255" "0 7 64 255" "0 8 64 255" "0 2 1 255" "0 2 16 255"
-    "0 3 17 255" "0 2 200 255" "0 2 255 255" "0 2 64 165" "0 4 31 127"
-    "1 1 64 255" "1 1 1 255" "1 1 16 255" "1 1 17 255" "1 1 100 255"
-    "1 1 255 255" "1 1 64 90"
+    "0 1 64 255 -1" "0 2 64 255 -1" "0 3 64 255 -1" "0 4 64 255 -1" "0 5 64 255 -1"
+    "0 6 64 255 -1" "0 7 64 255 -1" "0 8 64 255 -1" "0 2 1 255 -1" "0 2 16 255 -1"
+    "0 3 17 255 -1" "0 2 200 255 -1" "0 2 255 255 -1" "0 2 64 165 -1" "0 4 31 127 -1"
+    "0 2 64 255 3"
+    "1 1 64 255 -1" "1 1 1 255 -1" "1 1 16 255 -1" "1 1 17 255 -1" "1 1 100 255 -1"
+    "1 1 255 255 -1" "1 1 64 90 -1"
+    "1 1 64 255 0" "1 1 64 255 7" "1 1 17 255 4" "1 1 1 255 2" "1 1 255 255 5"
+    "1 1 64 90 0" "1 1 64 90 3" "1 1 33 254 0"
   )
   seed=1
   for cfg in "${CFGS[@]}"; do
     # shellcheck disable=SC2086
     python3 "$HERE/trig_model.py" gen $seed $cfg trig_stim.txt trig_expect.txt
     xsim tb_trig -R >/dev/null
-    printf "trig  mode/N/W/mask = %-14s " "$cfg"
+    printf "trig  mode/N/W/mask/veto = %-17s " "$cfg"
     python3 "$HERE/trig_model.py" cmp trig_expect.txt trig_out.txt || fail=1
     seed=$((seed + 1))
   done

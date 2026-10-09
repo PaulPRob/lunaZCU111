@@ -19,6 +19,11 @@
 --     quiet_j(q) : dist_j(q)   >= W  -> no hit in [p,     p+W-1]
 --   The reported trigger position is p (not q).
 --
+--   VETO (anti-coincidence only, veto_en = 1): channel veto_ch never starts a
+--   trigger, but a veto_ch hit in [p-W+1, p+W-1] blocks the trigger, whether
+--   or not veto_ch is set in ch_mask.  With veto_en = 0 the behaviour is the
+--   plain anti-coincidence above.
+--
 -- SOFT : soft_trig pulse, position = current sample, always accepted.
 --
 -- Outputs one trigger per clock at most (earliest lane wins).
@@ -38,6 +43,8 @@ entity trig_logic is
     n_req      : in  unsigned(3 downto 0);   -- 1..8
     win        : in  unsigned(7 downto 0);   -- 1..255 samples
     ch_mask    : in  std_logic_vector(NCH-1 downto 0);
+    veto_en    : in  std_logic;              -- anti-coincidence veto enable
+    veto_ch    : in  unsigned(2 downto 0);   -- veto channel
     arm        : in  std_logic;
     soft_trig  : in  std_logic;
     -- detector outputs
@@ -89,6 +96,10 @@ architecture rtl of trig_logic is
   signal a5_valid: std_logic := '0';
   signal a5_pos  : unsigned(63 downto 0);
   signal a5_mask : std_logic_vector(NCH-1 downto 0);
+
+  -- anti-coincidence channel roles (registered, quasi-static)
+  signal a_cand  : std_logic_vector(NCH-1 downto 0) := (others => '0');  -- may start a trigger
+  signal a_blk   : std_logic_vector(NCH-1 downto 0) := (others => '0');  -- hits block others
 
   signal d_samp  : unsigned(7 downto 0);    -- W-1
   signal d_cyc   : integer range 0 to 15;
@@ -175,6 +186,17 @@ begin
       end loop;
       a1_cyc <= cyc_in;
 
+      -- channel roles: the veto channel blocks but never starts a trigger
+      for j in 0 to NCH-1 loop
+        if veto_en = '1' and to_integer(veto_ch) = j then
+          a_cand(j) <= '0';
+          a_blk(j)  <= '1';
+        else
+          a_cand(j) <= ch_mask(j);
+          a_blk(j)  <= ch_mask(j);
+        end if;
+      end loop;
+
       -- history of a1_x : hist(i) holds a1_x from i cycles before
       hist(1) <= a1_x;
       for i in 2 to LANES loop
@@ -213,7 +235,7 @@ begin
       -- A4 : exactly-one-channel condition per lane
       for L in 0 to LANES-1 loop
         for j in 0 to NCH-1 loop
-          quiet_ok(j) := (not ch_mask(j)) or (a3_qd(j)(L) and a3_q(j)(L));
+          quiet_ok(j) := (not a_blk(j)) or (a3_qd(j)(L) and a3_q(j)(L));
         end loop;
         any := '0';
         for r in 0 to NCH-1 loop
@@ -223,8 +245,8 @@ begin
               others_quiet := others_quiet and quiet_ok(j);
             end if;
           end loop;
-          a4_who(L)(r) <= a3_hd(r)(L) and ch_mask(r) and others_quiet;
-          any := any or (a3_hd(r)(L) and ch_mask(r) and others_quiet);
+          a4_who(L)(r) <= a3_hd(r)(L) and a_cand(r) and others_quiet;
+          any := any or (a3_hd(r)(L) and a_cand(r) and others_quiet);
         end loop;
         a4_anti(L) <= any;
       end loop;

@@ -4,7 +4,8 @@
 -- Register map (byte offsets, 32-bit registers) - see docs/register_map.md
 --   0x000 ID          RO  0x4C554E41 ("LUNA")
 --   0x004 VERSION     RO  [31:16] major [15:8] minor [7:0] number of banks
---                         (major 2: the design includes the spectrometer)
+--                         (major 2: the design includes the spectrometer,
+--                          minor 1: VETO register)
 --   0x008 CTRL        RW  bit0 ARM, bit8 IRQ_EN (levels)
 --                         W1 pulses: bit1 SOFT_TRIG, bit2 TS_RESET(+flush),
 --                                    bit3 FLUSH, bit4 CNT_CLEAR
@@ -26,6 +27,8 @@
 --   0x080+4*i PEAK    RO  channel i: max |x| since last read (read clears)
 --   0x0A0 SYSREF_CNT  RO  PL SYSREF rising edges seen
 --   0x0A4 SCRATCH     RW
+--   0x0A8 VETO        RW  [2:0] veto channel, bit8 enable (anti-coincidence
+--                         only: the channel blocks but never starts a trigger)
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
@@ -65,6 +68,8 @@ entity trig_regs_axil is
     cfg_n         : out unsigned(3 downto 0);
     cfg_win       : out unsigned(7 downto 0);
     cfg_mask      : out std_logic_vector(NCH-1 downto 0);
+    cfg_veto_en   : out std_logic;
+    cfg_veto_ch   : out unsigned(2 downto 0);
     cfg_len_w     : out unsigned(10 downto 0);
     cfg_thresh    : out u16_arr_t;
     -- pulses
@@ -96,6 +101,8 @@ architecture rtl of trig_regs_axil is
   signal r_n      : unsigned(3 downto 0) := to_unsigned(2, 4);
   signal r_win    : unsigned(7 downto 0) := to_unsigned(64, 8);
   signal r_mask   : std_logic_vector(NCH-1 downto 0) := (others => '1');
+  signal r_veto_en: std_logic := '0';
+  signal r_veto_ch: unsigned(2 downto 0) := (others => '0');
   signal r_len_w  : unsigned(10 downto 0) := to_unsigned(1024, 11);
   signal r_thresh : u16_arr_t := (others => to_unsigned(16#4000#, 16));
   signal r_scratch: std_logic_vector(31 downto 0) := (others => '0');
@@ -196,6 +203,9 @@ begin
             p_release <= w_data(0);
           when 16#0A4#/4 =>
             r_scratch <= w_data;
+          when 16#0A8#/4 =>
+            r_veto_ch <= v(2 downto 0);
+            r_veto_en <= w_data(8);
           when others =>
             if a >= 16#040#/4 and a < 16#040#/4 + NCH then
               r_thresh(a - 16#040#/4) <= v(15 downto 0);
@@ -231,7 +241,7 @@ begin
         d := (others => '0');
         case a is
           when 16#000#/4 => d := x"4C554E41";
-          when 16#004#/4 => d := x"0002" & x"00" & std_logic_vector(to_unsigned(2**NB_LOG2, 8));
+          when 16#004#/4 => d := x"0002" & x"01" & std_logic_vector(to_unsigned(2**NB_LOG2, 8));
           when 16#008#/4 => d(0) := r_arm; d(8) := r_irq_en;
           when 16#00C#/4 =>
             d(3 downto 0) := std_logic_vector(resize(st_nfull, 4));
@@ -253,6 +263,9 @@ begin
           when 16#03C#/4 => d := std_logic_vector(st_lost_cnt);
           when 16#0A0#/4 => d := std_logic_vector(st_sysref_cnt);
           when 16#0A4#/4 => d := r_scratch;
+          when 16#0A8#/4 =>
+            d(2 downto 0) := std_logic_vector(r_veto_ch);
+            d(8) := r_veto_en;
           when others =>
             if a >= 16#040#/4 and a < 16#040#/4 + NCH then
               d := std_logic_vector(resize(r_thresh(a - 16#040#/4), 32));
@@ -280,6 +293,8 @@ begin
   cfg_n         <= r_n;
   cfg_win       <= r_win;
   cfg_mask      <= r_mask;
+  cfg_veto_en   <= r_veto_en;
+  cfg_veto_ch   <= r_veto_ch;
   cfg_len_w     <= r_len_w;
   cfg_thresh    <= r_thresh;
 

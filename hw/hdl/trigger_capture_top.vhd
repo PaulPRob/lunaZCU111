@@ -118,6 +118,8 @@ architecture rtl of trigger_capture_top is
   signal cfg_n     : unsigned(3 downto 0);
   signal cfg_win   : unsigned(7 downto 0);
   signal cfg_mask  : std_logic_vector(NCH-1 downto 0);
+  signal cfg_veto_en : std_logic;
+  signal cfg_veto_ch : unsigned(2 downto 0);
   signal cfg_len_w : unsigned(10 downto 0);
   signal cfg_thr   : u16_arr_t;
 
@@ -231,6 +233,8 @@ begin
       n_req      => cfg_n,
       win        => cfg_win,
       ch_mask    => cfg_mask,
+      veto_en    => cfg_veto_en,
+      veto_ch    => cfg_veto_ch,
       arm        => cfg_arm,
       soft_trig  => p_soft,
       cyc_in     => cyc_d(DET_LAT),
@@ -260,6 +264,8 @@ begin
       cfg_win       => cfg_win,
       cfg_n         => cfg_n,
       cfg_mode      => cfg_mode,
+      cfg_veto_en   => cfg_veto_en,
+      cfg_veto_ch   => cfg_veto_ch,
       flush         => p_flush,
       rd_start      => p_rds,
       release       => p_rel,
@@ -309,6 +315,8 @@ begin
       cfg_n         => cfg_n,
       cfg_win       => cfg_win,
       cfg_mask      => cfg_mask,
+      cfg_veto_en   => cfg_veto_en,
+      cfg_veto_ch   => cfg_veto_ch,
       cfg_len_w     => cfg_len_w,
       cfg_thresh    => cfg_thr,
       p_soft_trig   => p_soft,

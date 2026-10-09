@@ -3,7 +3,7 @@
 import struct
 import sys
 
-HDR = struct.Struct("<4sHHIIQQIBBBBHBBII12x")
+HDR = struct.Struct("<4sHHIIQQIBBBBHBBIIB11x")
 PULSE = 0x6000
 
 
@@ -33,10 +33,11 @@ def main():
     prev_seq, prev_bank = None, None
     for i, (ev, e) in enumerate(zip(events, exp)):
         L_exp, src_exp, mask_exp, lost_exp = map(int, e[1:5])
+        veto_exp = int(e[5]) if len(e) > 5 else 0
         (magic, ver, hbytes, seq, nsamp, trig, start, off, mask, src, nch,
-         bank, win, ncoinc, mode, lost, tcnt) = HDR.unpack_from(ev, 0)
+         bank, win, ncoinc, mode, lost, tcnt, veto) = HDR.unpack_from(ev, 0)
         tag = f"event {i} (seq {seq})"
-        if magic != b"LUNA" or ver != 1 or hbytes != 64 or nch != 8:
+        if magic != b"LUNA" or ver != 2 or hbytes != 64 or nch != 8:
             errors.append(f"{tag}: bad header magic/version/size")
             continue
         if nsamp != L_exp:
@@ -47,6 +48,8 @@ def main():
         if src != src_exp or mask != mask_exp or lost != lost_exp:
             errors.append(f"{tag}: src/mask/lost {src}/{mask}/{lost} "
                           f"!= {src_exp}/{mask_exp}/{lost_exp}")
+        if veto != veto_exp:
+            errors.append(f"{tag}: veto byte {veto:#x} != {veto_exp:#x}")
         if start % 16 or trig - start != off or off != nsamp // 2 + trig % 16:
             errors.append(f"{tag}: trigger not centred (start {start} trig {trig} off {off})")
         if prev_seq is not None and seq != prev_seq + 1:

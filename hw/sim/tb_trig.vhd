@@ -2,7 +2,7 @@
 -- tb_trig : chan_detect x 8 + trig_logic against the Python golden model
 --
 -- stim file (text):
---   line 1   : mode n_req win mask(dec)
+--   line 1   : mode n_req win mask(dec) veto_en veto_ch
 --   line 2.. : one line per clk_1x cycle, 8 decimal lane-hit masks (16 bit)
 -- For every set lane bit the TB drives a sample of +/-0x6000 (sign alternates),
 -- otherwise small noise; threshold = 0x4000.
@@ -38,6 +38,8 @@ architecture sim of tb_trig is
   signal n_req : unsigned(3 downto 0) := to_unsigned(2, 4);
   signal win   : unsigned(7 downto 0) := to_unsigned(64, 8);
   signal mask  : std_logic_vector(NCH-1 downto 0) := (others => '1');
+  signal veto_en : std_logic := '0';
+  signal veto_ch : unsigned(2 downto 0) := (others => '0');
 
   signal tv    : std_logic;
   signal tpos  : unsigned(63 downto 0);
@@ -56,7 +58,7 @@ begin
 
   u_trig : entity work.trig_logic
     port map (clk => clk, rst => rst, mode_anti => mode, n_req => n_req, win => win,
-              ch_mask => mask, arm => '1', soft_trig => '0', cyc_in => cyc_d(3),
+              ch_mask => mask, veto_en => veto_en, veto_ch => veto_ch, arm => '1', soft_trig => '0', cyc_in => cyc_d(3),
               hit => hits, dist => dists, trig_valid => tv, trig_pos => tpos,
               trig_mask => tmask, trig_src => tsrc);
 
@@ -83,6 +85,8 @@ begin
     read(l, v); n_req <= to_unsigned(v, 4);
     read(l, v); win <= to_unsigned(v, 8);
     read(l, v); mask <= std_logic_vector(to_unsigned(v, NCH));
+    read(l, v); if v = 1 then veto_en <= '1'; else veto_en <= '0'; end if;
+    read(l, v); veto_ch <= to_unsigned(v, 3);
     for i in 0 to 9 loop
       wait until rising_edge(clk);
     end loop;

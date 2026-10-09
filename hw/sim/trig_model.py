@@ -6,11 +6,14 @@ Definitions (identical to the VHDL documentation in trig_logic.vhd):
           channels have a hit in [q-W+1, q].  Mask = those channels.
   ANTI  : trigger at sample p if enabled channel r hits at p and no other
           enabled channel has a hit in [p-W+1, p+W-1].  Mask = 1<<r.
+  VETO  : (ANTI only, veto = channel V >= 0) V never starts a trigger, but a
+          V hit in [p-W+1, p+W-1] blocks, whether or not V is in the mask.
   Hardware emits at most one trigger per clock cycle (16 samples): the
   earliest qualifying lane of the evaluation cycle (q for COINC, p+W-1 for ANTI).
 
 usage:
-  trig_model.py gen  <seed> <mode> <N> <W> <mask> <stim> <expect>
+  trig_model.py gen  <seed> <mode> <N> <W> <mask> <veto> <stim> <expect>
+                     (veto = channel 0..7, or -1 for none)
   trig_model.py cmp  <expect> <out>
 """
 import random
@@ -48,8 +51,11 @@ def gen(seed, mode, n_req, win, mask, ncycles=3000):
     return hits
 
 
-def expected(hits, mode, n_req, win, mask):
+def expected(hits, mode, n_req, win, mask, veto=-1):
     en = [(mask >> j) & 1 for j in range(NCH)]
+    # anti-coincidence roles: cand may start a trigger, blk blocks others
+    a_cand = [en[j] and j != veto for j in range(NCH)]
+    a_blk = [en[j] or j == veto for j in range(NCH)]
     hs = [set(h) for h in hits]
     maxpos = max((max(h) for h in hits if h), default=0) + 2 * win + 64
     trig = []
@@ -70,38 +76,38 @@ def expected(hits, mode, n_req, win, mask):
                 trig.append((q, sum(1 << j for j in chans), 1))
                 last_cycle = c
     else:
-        cand = sorted({(p, r) for r in range(NCH) if en[r] for p in hits[r]})
+        pr = sorted({(p, r) for r in range(NCH) if a_cand[r] for p in hits[r]})
         last_cycle = -1
-        for p, r in cand:
+        for p, r in pr:
             c = (p + win - 1) // LANES
             if c == last_cycle:
                 continue
             ok = all(not has_hit(j, p - win + 1, p + win - 1)
-                     for j in range(NCH) if en[j] and j != r)
+                     for j in range(NCH) if a_blk[j] and j != r)
             if ok:
                 trig.append((p, 1 << r, 2))
                 last_cycle = c
     return trig
 
 
-def write_stim(fname, hits, mode, n_req, win, mask, ncycles=3000):
+def write_stim(fname, hits, mode, n_req, win, mask, veto, ncycles=3000):
     lanes = [[0] * ncycles for _ in range(NCH)]
     for j in range(NCH):
         for p in hits[j]:
             lanes[j][p // LANES] |= 1 << (p % LANES)
     with open(fname, "w") as f:
-        f.write(f"{mode} {n_req} {win} {mask}\n")
+        f.write(f"{mode} {n_req} {win} {mask} {int(veto >= 0)} {max(veto, 0)}\n")
         for c in range(ncycles):
             f.write(" ".join(str(lanes[j][c]) for j in range(NCH)) + "\n")
 
 
 def main():
     if sys.argv[1] == "gen":
-        seed, mode, n_req, win, mask = map(int, sys.argv[2:7])
+        seed, mode, n_req, win, mask, veto = map(int, sys.argv[2:8])
         hits = gen(seed, mode, n_req, win, mask)
-        write_stim(sys.argv[7], hits, mode, n_req, win, mask)
-        with open(sys.argv[8], "w") as f:
-            for t in expected(hits, mode, n_req, win, mask):
+        write_stim(sys.argv[8], hits, mode, n_req, win, mask, veto)
+        with open(sys.argv[9], "w") as f:
+            for t in expected(hits, mode, n_req, win, mask, veto):
                 f.write("%d %d %d\n" % t)
     elif sys.argv[1] == "cmp":
         exp = [tuple(map(int, l.split())) for l in open(sys.argv[2]) if l.strip()]

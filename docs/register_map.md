@@ -26,7 +26,7 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 | Offset | Name | Access | Description |
 |--------|------|--------|-------------|
 | 0x000 | ID | RO | `0x4C554E41` ("LUNA") |
-| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of capture banks (4). Major 2 = the design includes the spectrometer |
+| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of capture banks (4). Major 2 = the design includes the spectrometer; minor 1 adds VETO |
 | 0x008 | CTRL | RW/W1P | bit0 **ARM** (level), bit8 **IRQ_EN** (level); pulses: bit1 SOFT_TRIG, bit2 TS_RESET (also flushes), bit3 FLUSH, bit4 CNT_CLEAR. Always write the level bits back with any pulse. |
 | 0x00C | STATUS | RO | [3:0] banks full (events waiting), [7:4] head bank, bit8 capturing (post-trigger), bit9 readout busy, bit10 active bank pre-filled (ready to trigger), bit16 armed |
 | 0x010 | MODE | RW | bit0: 0 = coincidence, 1 = anti-coincidence |
@@ -45,6 +45,7 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 | 0x080 + 4·i | PEAK[i] | RO | channel i: max \|x\| since the last read (reading clears it) |
 | 0x0A0 | SYSREF_CNT | RO | PL SYSREF rising edges seen (7.68 MHz when present) |
 | 0x0A4 | SCRATCH | RW | scratch register |
+| 0x0A8 | VETO | RW | [2:0] veto channel, bit8 enable. Anti-coincidence only: the veto channel never starts a trigger, but its hit within ±WINDOW of a candidate blocks it, whether or not it is set in CH_MASK. VERSION minor ≥ 1 |
 
 ### Event readout sequence (what `lunaserver` does)
 
@@ -59,7 +60,7 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 | Byte | Field |
 |------|-------|
 | 0  | magic "LUNA" |
-| 4  | u16 version = 1, u16 header bytes = 64 |
+| 4  | u16 version = 2, u16 header bytes = 64 (version 1: byte 52 is always 0) |
 | 8  | u32 event sequence number |
 | 12 | u32 samples per channel L |
 | 16 | u64 trigger sample index T |
@@ -68,7 +69,8 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 | 36 | u8 trigger mask, u8 source (1 coinc, 2 anti, 3 soft), u8 channels (8), u8 bank |
 | 40 | u16 window, u8 N, u8 mode |
 | 44 | u32 lost-trigger count, u32 trigger count |
-| 52 | reserved (12 bytes) |
+| 52 | u8 veto: bit7 enable, [2:0] channel (register VETO at trigger time; acts only when mode = 1) |
+| 53 | reserved (11 bytes) |
 | 64 | int16 ch0[L], ch1[L], … ch7[L] |
 
 ## Spectrometer `0xA014_0000`
