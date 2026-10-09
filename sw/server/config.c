@@ -32,6 +32,8 @@ int config_sanitize(struct luna_config *c)
     if (c->window < 1) c->window = 1;
     if (c->window > 255) c->window = 255;
     c->ch_mask &= 0xFF;
+    c->veto_en = !!c->veto_en;
+    if (c->veto_ch < 0 || c->veto_ch >= LUNA_NCH) c->veto_ch = 0;
     if (c->cap_len < LUNA_MIN_SAMPLES) c->cap_len = LUNA_MIN_SAMPLES;
     if (c->cap_len > LUNA_MAX_SAMPLES) c->cap_len = LUNA_MAX_SAMPLES;
     c->cap_len &= ~31;
@@ -67,6 +69,8 @@ int config_load(struct luna_config *c, const char *path)
             else if (!strcmp(key, "coinc_n")) c->coinc_n = (int)v;
             else if (!strcmp(key, "window"))  c->window = (int)v;
             else if (!strcmp(key, "ch_mask")) c->ch_mask = (uint32_t)v;
+            else if (!strcmp(key, "veto_enable")) c->veto_en = (int)v;
+            else if (!strcmp(key, "veto_ch"))     c->veto_ch = (int)v;
             else if (!strcmp(key, "cap_len")) c->cap_len = (int)v;
             else if (!strcmp(key, "armed"))   c->armed = (int)v;
             else if (!strcmp(key, "spec_enable"))  c->spec_enable = (int)v;
@@ -96,6 +100,7 @@ int config_save(const struct luna_config *c, const char *path)
     fprintf(f, "mode_anti = %d\ncoinc_n = %d\nwindow = %d\nch_mask = 0x%02X\n"
                "cap_len = %d\narmed = %d\n",
             c->mode_anti, c->coinc_n, c->window, c->ch_mask, c->cap_len, c->armed);
+    fprintf(f, "veto_enable = %d\nveto_ch = %d\n", c->veto_en, c->veto_ch);
     fprintf(f, "spec_enable = %d\nspec_input = %d\nspec_subband = %d\nspec_nspec = %u\n",
             c->spec_enable, c->spec_input, c->spec_subband, c->spec_nspec);
     fclose(f);

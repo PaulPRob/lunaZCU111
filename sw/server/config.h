@@ -11,6 +11,8 @@ struct luna_config {
     int      coinc_n;           /* 1..8                                          */
     int      window;            /* 1..255 samples                                */
     uint32_t ch_mask;           /* channels taking part                          */
+    int      veto_en;           /* anti-coincidence veto on (trigger core v2.1+) */
+    int      veto_ch;           /* veto channel 0..7: blocks, never triggers     */
     int      cap_len;           /* 4096..16384 samples, multiple of 32           */
     int      armed;             /* arm on start-up                               */
     /* spectrometer */

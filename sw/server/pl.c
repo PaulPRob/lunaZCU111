@@ -88,8 +88,9 @@ int pl_core_init(struct pl *p)
     }
     uint32_t ver = hw_rd(&p->trig, TR_VERSION);
     p->nbanks = (int)(ver & 0xFF);
-    LOGI("pl: trigger core v%u.%u, %d capture banks",
-             ver >> 16, (ver >> 8) & 0xFF, p->nbanks);
+    p->has_veto = (ver >> 8) >= TR_VERSION_VETO;
+    LOGI("pl: trigger core v%u.%u, %d capture banks%s",
+             ver >> 16, (ver >> 8) & 0xFF, p->nbanks, p->has_veto ? ", veto" : "");
     p->ctrl_levels = 0;
     hw_wr(&p->trig, TR_CTRL, CTRL_TS_RESET | CTRL_FLUSH | CTRL_CNT_CLEAR);
     dma_reset(p);
@@ -109,6 +110,8 @@ void pl_apply_config(struct pl *p, const struct luna_config *c)
     hw_wr(&p->trig, TR_COINC_N, (uint32_t)c->coinc_n);
     hw_wr(&p->trig, TR_WINDOW, (uint32_t)c->window);
     hw_wr(&p->trig, TR_CH_MASK, c->ch_mask);
+    if (p->has_veto)
+        hw_wr(&p->trig, TR_VETO, VETO_CH((uint32_t)c->veto_ch) | (c->veto_en ? VETO_EN : 0));
     if ((int)(hw_rd(&p->trig, TR_CAP_LEN)) != c->cap_len) {
         /* a new length needs a fresh pre-trigger fill: flush the banks
          * (events already captured are discarded) */

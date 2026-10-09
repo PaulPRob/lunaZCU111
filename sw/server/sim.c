@@ -46,7 +46,7 @@ size_t sim_make_event(const struct luna_config *c, void *dst, size_t max,
     trig_sample &= ~(uint64_t)0 >> 1;
     uint64_t start = ((trig_sample >> 4) - L / 32) << 4;
     h->magic = LUNA_EVENT_MAGIC;
-    h->version = 1;
+    h->version = LUNA_EVENT_VERSION;
     h->hdr_bytes = 64;
     h->seq = seq;
     h->n_samples = L;
@@ -59,10 +59,17 @@ size_t sim_make_event(const struct luna_config *c, void *dst, size_t max,
     h->coinc_n = (uint8_t)c->coinc_n;
     h->mode = (uint8_t)c->mode_anti;
     h->trig_count = seq + 1;
+    h->veto = (uint8_t)((c->veto_en ? LUNA_VETO_EN : 0) | LUNA_VETO_CH((unsigned)c->veto_ch));
 
     uint8_t mask;
     if (c->mode_anti) {
-        mask = (uint8_t)(1u << (xorshift() % LUNA_NCH));
+        /* one enabled channel alone; never the veto channel */
+        uint32_t cand = c->ch_mask & ~(c->veto_en ? 1u << c->veto_ch : 0u) & 0xFF;
+        if (!cand)
+            cand = 0xFF;
+        do {
+            mask = (uint8_t)(1u << (xorshift() % LUNA_NCH));
+        } while (!(mask & cand));
         h->trig_src = LUNA_SRC_ANTI;
     } else {
         if (__builtin_popcount(c->ch_mask) <= c->coinc_n) {

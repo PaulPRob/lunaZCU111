@@ -26,7 +26,8 @@ struct luna_frame_hdr  (64 bytes, added by the server)
  32  u16[8]   thresholds   in effect
  48  u32      dropped      frames dropped for this client before this frame
  52  u32[3]   reserved
-struct luna_event_hdr  (64 bytes, written by the FPGA; see register_map.md)
+struct luna_event_hdr  (64 bytes, written by the FPGA; see register_map.md.
+                        Version 2 adds the veto byte at 52; it is 0 in version 1)
 int16 samples[8][L]        channel major; 12-bit ADC code in bits 15..4
 ```
 
@@ -77,8 +78,8 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 | Command | Effect |
 |---------|--------|
 | `HELP` | list the commands |
-| `STATUS` | armed, mode, banks full, trigger/lost counts, clients, frames sent/dropped, sample counter, SYSREF count, RFDC PLL lock and MTS latency |
-| `GET CONFIG` | thresholds, mode, N, window, mask, length, armed, spec_enable, spec_input, spec_subband, spec_nspec |
+| `STATUS` | armed, mode, veto, banks full, trigger/lost counts, clients, frames sent/dropped, sample counter, SYSREF count, RFDC PLL lock and MTS latency |
+| `GET CONFIG` | thresholds, mode, N, window, mask, veto, length, armed, spec_enable, spec_input, spec_subband, spec_nspec |
 | `GET RATES` | per channel: clock cycles with a hit per second since the previous `GET RATES` |
 | `GET PEAKS` | per channel: largest \|x\| since the previous `GET PEAKS` (noise level; useful for choosing thresholds) |
 | `SET THRESH <ch\|ALL> <0-32767>` | threshold in 16-bit units (12-bit code × 16) |
@@ -86,6 +87,7 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 | `SET N <1-8>` | channels required within the window (coincidence) |
 | `SET WINDOW <1-255>` | window in samples (default 64 = 16.3 ns) |
 | `SET MASK <0x00-0xFF>` | channels taking part in triggering |
+| `SET VETO <0-7\|OFF>` | anti-coincidence veto channel (default OFF): it never starts a trigger, but its hit within the window blocks one, whatever its MASK bit. No effect in coincidence mode. `veto=` reads `OFF`, the channel, or `absent` (bitstream before trigger core v2.1: the command is refused) |
 | `SET LEN <4096-16384>` | capture length per channel (multiple of 32); changing it discards any captured events that have not been read out |
 | `ARM` / `DISARM` | enable/disable triggering (events already captured are still sent) |
 | `SOFTTRIG` | force one capture now |
@@ -103,5 +105,6 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 
 - **Coincidence:** the trigger fires at sample q when an enabled channel has a hit at q and at least N enabled channels have a hit in [q−W+1, q]. It fires on the hit that completes the coincidence, and the mask lists all participating channels. N = 1 gives a simple OR of the channels.
 - **Anti-coincidence:** the trigger fires at sample p when enabled channel r has a hit at p and no other enabled channel has a hit in [p−W+1, p+W−1]. The mask is 1<<r. The decision is taken W−1 samples later, but the buffer is still centred on p.
+- **Veto (anti-coincidence only):** with `SET VETO v`, channel v never starts a trigger, but a hit on it in [p−W+1, p+W−1] blocks the trigger, whether or not v is in the mask. The event header byte 52 records the VETO register (bit 7 enable, bits 2..0 channel).
 - A hit means |x| > threshold on that channel. The evaluation is sample-exact at 3.93216 GS/s.
 - Triggers that arrive while the post-trigger half of an event is still being recorded belong to that same event and are ignored. After each event the next capture bank needs L/2 samples of pre-trigger data (2.1 µs at L = 16384) before it can trigger.

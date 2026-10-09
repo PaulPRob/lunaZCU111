@@ -20,6 +20,8 @@ from .specwin import SpecWindow
 from .workers import ControlWorker, DataReceiver, PlotWorker, Recorder, SpecReceiver
 
 FS = 3.93216e9
+VETO_TIP = ("Anti-coincidence veto (SET VETO): this channel never starts a trigger, but its "
+            "hit within ±window blocks one, whether or not it is 'In trigger'")
 
 
 def _num(s, default=0.0):
@@ -213,6 +215,11 @@ class MainWindow(QMainWindow):
                              "anti-coincidence (one channel alone)")
         self.coinc_n = QSpinBox()
         self.coinc_n.setRange(1, 8)
+        self.veto = QComboBox()
+        self.veto.addItem("off", None)
+        for c in range(NCH):
+            self.veto.addItem(f"ch {c}", c)
+        self.veto.setToolTip(VETO_TIP)
         self.window = QSpinBox()
         self.window.setRange(1, 255)
         self.window.setSuffix(" samples")
@@ -227,25 +234,28 @@ class MainWindow(QMainWindow):
         self.window.valueChanged.connect(lambda v: self.window_ns.setText(f"= {v / FS * 1e9:.2f} ns"))
         self.length.valueChanged.connect(lambda v: self.length_us.setText(
             f"= {v / FS * 1e6:.3f} µs, {v * NCH * 2 // 1024} KiB/event"))
-        for w in (self.mode, self.coinc_n, self.window, self.length):
+        for w in (self.mode, self.coinc_n, self.veto, self.window, self.length):
             sig = w.currentIndexChanged if isinstance(w, QComboBox) else w.valueChanged
             sig.connect(self._mark_dirty)
-        self.mode.currentTextChanged.connect(lambda m: self.coinc_n.setEnabled(m == "COINC"))
+        self.mode.currentTextChanged.connect(self._mode_widgets)
         f.addWidget(QLabel("Mode"), 0, 0)
         f.addWidget(self.mode, 0, 1)
         f.addWidget(QLabel("N (coinc.)"), 0, 2)
         f.addWidget(self.coinc_n, 0, 3)
+        f.addWidget(QLabel("Veto (anti)"), 0, 4)
+        f.addWidget(self.veto, 0, 5)
         f.addWidget(QLabel("Window"), 1, 0)
         f.addWidget(self.window, 1, 1)
         f.addWidget(self.window_ns, 1, 2, 1, 2)
         f.addWidget(QLabel("Buffer length"), 2, 0)
         f.addWidget(self.length, 2, 1)
         f.addWidget(self.length_us, 2, 2, 1, 2)
-        f.setColumnStretch(4, 1)
+        f.setColumnStretch(6, 1)
         v.addLayout(f)
         self.window.setValue(64)
         self.length.setValue(16384)
         self.coinc_n.setValue(1)
+        self._mode_widgets(self.mode.currentText())
 
         h = QHBoxLayout()
         self.btn_apply = QPushButton("Apply")
@@ -452,6 +462,11 @@ class MainWindow(QMainWindow):
         for w in (self.host, self.ctrl_port, self.data_port, self.spec_port):
             w.setEnabled(not on)
 
+    def _mode_widgets(self, mode: str):
+        self.coinc_n.setEnabled(mode == "COINC")
+        # older servers have no veto=, and a bitstream without the VETO register gives absent
+        self.veto.setEnabled(mode == "ANTI" and self.server_cfg.get("veto", "absent") != "absent")
+
     def _mark_dirty(self, *_):
         if self.server_cfg:
             self.dirty_lab.setText(
@@ -462,6 +477,7 @@ class MainWindow(QMainWindow):
         return {"thresh": [s.value() for s in self.thr_spin],
                 "mask": sum(1 << c for c, cb in enumerate(self.mask_cb) if cb.isChecked()),
                 "mode": self.mode.currentText(), "n": self.coinc_n.value(),
+                "veto": self.veto.currentData(),
                 "window": self.window.value(), "len": self.length.value()}
 
     def _config_diff(self) -> list[str]:
@@ -477,6 +493,8 @@ class MainWindow(QMainWindow):
             cmds.append(f"SET MASK 0x{w['mask']:02X}")
         if w["mode"] != cfg.get("mode"):
             cmds.append(f"SET MODE {w['mode']}")
+        if "veto" in cfg and cfg["veto"] != "absent" and w["veto"] != cfg["veto"]:
+            cmds.append("SET VETO OFF" if w["veto"] is None else f"SET VETO {w['veto']}")
         if w["n"] != cfg.get("n"):
             cmds.append(f"SET N {w['n']}")
         if w["window"] != cfg.get("window"):
@@ -722,6 +740,9 @@ class MainWindow(QMainWindow):
                    "mask": int(kv["mask"], 16), "mode": kv["mode"].upper(),
                    "n": int(kv["n"]), "window": int(kv["window"]), "len": int(kv["len"]),
                    "armed": kv.get("armed") == "1"}
+            if "veto" in kv:                      # server with the VETO command
+                v = kv["veto"].lower()
+                cfg["veto"] = None if v == "off" else v if v == "absent" else int(v)
         except (KeyError, ValueError) as e:
             self.log(f"could not parse GET CONFIG: {e} {kv}")
             return
@@ -731,6 +752,12 @@ class MainWindow(QMainWindow):
             self.mask_cb[c].setChecked(bool((cfg["mask"] >> c) & 1))
         self.mode.setCurrentText(cfg["mode"])
         self.coinc_n.setValue(cfg["n"])
+        veto = cfg.get("veto")
+        self.veto.setCurrentIndex(0 if veto is None or veto == "absent" else veto + 1)
+        self.veto.setToolTip(VETO_TIP if veto != "absent" and "veto" in cfg else
+                             VETO_TIP + "\nNot available: this server or bitstream has no "
+                             "VETO register")
+        self._mode_widgets(cfg["mode"])
         self.window.setValue(cfg["window"])
         self.length.setValue(cfg["len"])
         self._show_armed(cfg["armed"])
@@ -802,7 +829,7 @@ class MainWindow(QMainWindow):
                     + rec
                     + (f' &nbsp; <b style="color:#c03030">{self._spec_link_err}</b>'
                        if self._spec_link_err else ""))
-        known = {"armed", "mode", "n", "window", "mask", "len", "banks_full", "capturing",
+        known = {"armed", "mode", "n", "window", "mask", "veto", "len", "banks_full", "capturing",
                  "triggers", "lost", "events", "clients", "sent", "dropped", "sample", "sysref",
                  "spec", "spectra"}
         self.st["rfdc"].setText(" ".join(f"{k}={v}" for k, v in st.items()

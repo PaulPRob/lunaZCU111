@@ -65,4 +65,5 @@ def load_event(path: str | Path) -> Event:
                      mode=int(get("mode", 0)), lost=int(get("lost", 0)), trig_count=0,
                      host_time_ns=int(get("host_time_ns", 0)),
                      sample_rate_hz=float(get("sample_rate_hz", SAMPLE_RATE_HZ)),
-                     thresholds=thr, dropped=0, simulated=False, samples=samples)
+                     thresholds=thr, dropped=0, simulated=False, samples=samples,
+                     veto=int(get("veto", 0)))

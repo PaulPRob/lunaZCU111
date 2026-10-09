@@ -149,7 +149,7 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 **Trigger:**
 - Every sample is compared (|x| > threshold, per channel).
 - Per lane, the detector also tracks the number of samples since the last hit. This makes the window test exact at the sample level, across clock-cycle boundaries.
-- The definitions are in `docs/protocol.md` and `hw/hdl/trig_logic.vhd`. They are verified against a brute-force Python model on 22 configurations: N=1..8, windows 1–255, masks, anti-coincidence.
+- The definitions are in `docs/protocol.md` and `hw/hdl/trig_logic.vhd`. They are verified against a brute-force Python model on 31 configurations: N=1..8, windows 1–255, masks, anti-coincidence, veto.
 
 **Capture:**
 - 4 banks × 8 channels × 16384 × 16 bit in UltraRAM (32 of 80 URAMs).

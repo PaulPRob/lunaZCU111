@@ -38,7 +38,7 @@ SPECTRUM_S = SPEC_NCHAN / SUBBAND_HZ      # one spectrum: 33.33 us
 # struct luna_frame_hdr (protocol.h)
 FRAME_HDR = struct.Struct("<4sHHIIQd8HI12x")
 # struct luna_event_hdr (protocol.h / capture_ctrl.vhd)
-EVENT_HDR = struct.Struct("<4sHHIIQQIBBBBHBBII12x")
+EVENT_HDR = struct.Struct("<4sHHIIQQIBBBBHBBIIB11x")
 # struct luna_spec_hdr (protocol.h)
 SPEC_HDR = struct.Struct("<4sHHIIQQdIIIIHBBI")
 assert FRAME_HDR.size == 64 and EVENT_HDR.size == 64 and SPEC_HDR.size == 64
@@ -47,6 +47,8 @@ SPEC_F_SIM = 1
 SPEC_F_FIRST = 2
 
 SRC_NAMES = {1: "coinc", 2: "anti", 3: "soft"}
+
+VETO_EN = 0x80                            # event header veto byte: bit7 enable, [2:0] channel
 
 
 @dataclass
@@ -72,10 +74,16 @@ class Event:
     dropped: int               # frames the server dropped for this client
     simulated: bool
     samples: np.ndarray = field(repr=False)   # int16 (8, n_samples)
+    veto: int = 0              # VETO register at trigger time (header v2; 0 before)
 
     @property
     def trig_channels(self) -> list[int]:
         return [c for c in range(NCH) if (self.trig_mask >> c) & 1]
+
+    @property
+    def veto_channel(self) -> int | None:
+        """Anti-coincidence veto channel in effect, or None."""
+        return self.veto & 7 if self.mode == 1 and self.veto & VETO_EN else None
 
     @property
     def trig_time_s(self) -> float:
@@ -97,7 +105,7 @@ def parse_frame(buf: bytes) -> Event:
     if fmagic != FRAME_MAGIC or fhdr != 64:
         raise ValueError(f"bad frame header {fmagic!r}")
     (emagic, ever, ehdr, seq, n, trig, start, off, mask, src, nch, bank, win, cn, mode,
-     lost, tcount) = EVENT_HDR.unpack_from(buf, 64)
+     lost, tcount, veto) = EVENT_HDR.unpack_from(buf, 64)
     if emagic != EVENT_MAGIC or nch != NCH:
         raise ValueError(f"bad event header {emagic!r}")
     data = np.frombuffer(buf, dtype="<i2", count=NCH * n, offset=128).reshape(NCH, n)
@@ -105,7 +113,7 @@ def parse_frame(buf: bytes) -> Event:
                  trig_mask=mask, trig_src=SRC_NAMES.get(src, str(src)), bank=bank, window=win,
                  coinc_n=cn, mode=mode, lost=lost, trig_count=tcount, host_time_ns=host_ns,
                  sample_rate_hz=fs, thresholds=thresholds, dropped=dropped,
-                 simulated=bool(flags & 1), samples=data)
+                 simulated=bool(flags & 1), samples=data, veto=veto)
 
 
 @dataclass

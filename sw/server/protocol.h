@@ -36,6 +36,7 @@
 #define LUNA_EVENT_MAGIC    0x414E554Cu   /* "LUNA" */
 #define LUNA_SPEC_MAGIC     0x4350534Cu   /* "LSPC" */
 #define LUNA_PROTO_VERSION  1
+#define LUNA_EVENT_VERSION  2             /* 2: veto byte (trigger core v2.1+) */
 #define LUNA_SPEC_VERSION   2             /* 2: adc_input field          */
 
 /* every frame header is 64 bytes with the per-client 'dropped' count at 48 */
@@ -52,6 +53,10 @@
 #define LUNA_SRC_COINC 1
 #define LUNA_SRC_ANTI  2
 #define LUNA_SRC_SOFT  3
+
+/* luna_event_hdr.veto */
+#define LUNA_VETO_EN       0x80u          /* veto enabled (acts in anti mode) */
+#define LUNA_VETO_CH(x)    ((x) & 0x7u)   /* veto channel                     */
 
 /* luna_spec_hdr.flags */
 #define LUNA_SPEC_F_SIM    (1u << 0)      /* simulated data                  */
@@ -75,7 +80,7 @@ struct luna_frame_hdr {
 
 struct luna_event_hdr {       /* written by the FPGA (capture_ctrl.vhd)      */
     uint32_t magic;           /* LUNA_EVENT_MAGIC                            */
-    uint16_t version;         /* 1                                           */
+    uint16_t version;         /* LUNA_EVENT_VERSION (1: veto is always 0)    */
     uint16_t hdr_bytes;       /* 64                                          */
     uint32_t seq;             /* accepted-event sequence number              */
     uint32_t n_samples;       /* samples per channel (L)                     */
@@ -91,7 +96,8 @@ struct luna_event_hdr {       /* written by the FPGA (capture_ctrl.vhd)      */
     uint8_t  mode;            /* 0 coincidence, 1 anti-coincidence           */
     uint32_t lost;            /* triggers lost before this event             */
     uint32_t trig_count;      /* accepted triggers incl. this one            */
-    uint32_t reserved[3];
+    uint8_t  veto;            /* VETO register at trigger time: LUNA_VETO_*  */
+    uint8_t  reserved[11];
 } __attribute__((packed));
 
 struct luna_spec_hdr {
@@ -119,5 +125,6 @@ _Static_assert(sizeof(struct luna_event_hdr) == 64, "event header size");
 _Static_assert(sizeof(struct luna_spec_hdr) == LUNA_HDR_BYTES, "spectrum header size");
 _Static_assert(offsetof(struct luna_frame_hdr, dropped) == LUNA_HDR_DROPPED_OFF, "dropped");
 _Static_assert(offsetof(struct luna_spec_hdr, dropped) == LUNA_HDR_DROPPED_OFF, "dropped");
+_Static_assert(offsetof(struct luna_event_hdr, veto) == 52, "event veto byte");
 
 #endif

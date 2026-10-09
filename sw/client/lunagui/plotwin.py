@@ -379,9 +379,10 @@ class PlotWindow(QMainWindow):
         ts = time.strftime("%H:%M:%S", time.localtime(evt.host_time_ns / 1e9))
         self.info.setText(
             f"<b>seq {evt.seq}</b> &nbsp; src <b>{evt.trig_src}</b> &nbsp; "
-            f"mask 0x{evt.trig_mask:02x} {evt.trig_channels} &nbsp; L {evt.n_samples} &nbsp; "
-            f"trig_offset {evt.trig_offset} &nbsp; t<sub>trig</sub> {evt.trig_time_s:.9f} s "
-            f"&nbsp; {ts}.{evt.host_time_ns % 10**9 // 10**6:03d} &nbsp; "
+            f"mask 0x{evt.trig_mask:02x} {evt.trig_channels} &nbsp; "
+            + (f"veto ch{evt.veto_channel} &nbsp; " if evt.veto_channel is not None else "")
+            + f"L {evt.n_samples} &nbsp; trig_offset {evt.trig_offset} &nbsp; "
+            f"t<sub>trig</sub> {evt.trig_time_s:.9f} s &nbsp; {ts}.{evt.host_time_ns % 10**9 // 10**6:03d} &nbsp; "
             f"lost {evt.lost} &nbsp; dropped {evt.dropped}"
             + (' &nbsp; <span style="color:#d08000"><b>[SIMULATED]</b></span>'
                if evt.simulated else "")

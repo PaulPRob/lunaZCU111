@@ -89,6 +89,23 @@ static int spec_present(void)
     return g_sim || g_pl.has_spec;
 }
 
+static int veto_present(void)
+{
+    return g_sim || g_pl.has_veto;
+}
+
+/* "OFF", the veto channel, or "absent" (bitstream without the VETO register) */
+static const char *veto_str(void)
+{
+    static char s[8];
+    if (!veto_present())
+        return "absent";
+    if (!g_cfg.veto_en)
+        return "OFF";
+    snprintf(s, sizeof s, "%d", g_cfg.veto_ch);
+    return s;
+}
+
 /* simulation: one synthetic integration per integration time (>= 0.1 s) */
 static void sim_spec_timer_update(void)
 {
@@ -134,7 +151,7 @@ static void spec_changed(void)
 static const char *help_text =
     "OK commands: STATUS | GET CONFIG | GET RATES | GET PEAKS | "
     "SET THRESH <ch|ALL> <0-32767> | SET MODE COINC|ANTI | SET N <1-8> | "
-    "SET WINDOW <1-255> | SET MASK <0x00-0xFF> | SET LEN <4096-16384> | "
+    "SET WINDOW <1-255> | SET MASK <0x00-0xFF> | SET VETO <0-7|OFF> | SET LEN <4096-16384> | "
     "ARM | DISARM | SOFTTRIG | RESYNC | "
     "GET SPEC | SPEC ON|OFF|RESTART | SET SPEC_INPUT <0-7> | SET SPEC_SUBBAND <0-16> | "
     "SET SPEC_TINT <seconds> | SET SPEC_NSPEC <spectra> | SAVE | HELP";
@@ -153,11 +170,12 @@ static void cmd_status(char *r, size_t n)
         trig = g_sim_seq;
     }
     snprintf(r, n,
-             "OK armed=%d mode=%s n=%d window=%d mask=0x%02X len=%d banks_full=%u "
+             "OK armed=%d mode=%s n=%d window=%d mask=0x%02X veto=%s len=%d banks_full=%u "
              "capturing=%d triggers=%u lost=%u events=%llu clients=%d sent=%llu "
              "dropped=%llu sample=%llu sysref=%u %s spec=%s spectra=%llu",
              g_cfg.armed, g_cfg.mode_anti ? "ANTI" : "COINC", g_cfg.coinc_n, g_cfg.window,
-             g_cfg.ch_mask, g_cfg.cap_len, ST_NFULL(st), !!(st & ST_CAPTURING), trig, lost,
+             g_cfg.ch_mask, veto_str(), g_cfg.cap_len, ST_NFULL(st), !!(st & ST_CAPTURING),
+             trig, lost,
              (unsigned long long)g_events, net_data_clients(g_net, NET_STREAM_EVENTS),
              (unsigned long long)net_frames_sent(g_net, NET_STREAM_EVENTS),
              (unsigned long long)net_frames_dropped(g_net, NET_STREAM_EVENTS),
@@ -238,12 +256,12 @@ static int set_spec(const char *key, const char *val, char *r, size_t n)
 
 static void cmd_config(char *r, size_t n)
 {
-    snprintf(r, n, "OK thresh=%u,%u,%u,%u,%u,%u,%u,%u mode=%s n=%d window=%d mask=0x%02X len=%d armed=%d "
-             "spec_enable=%d spec_input=%d spec_subband=%d spec_nspec=%u",
+    snprintf(r, n, "OK thresh=%u,%u,%u,%u,%u,%u,%u,%u mode=%s n=%d window=%d mask=0x%02X veto=%s "
+             "len=%d armed=%d spec_enable=%d spec_input=%d spec_subband=%d spec_nspec=%u",
              g_cfg.thresh[0], g_cfg.thresh[1], g_cfg.thresh[2], g_cfg.thresh[3],
              g_cfg.thresh[4], g_cfg.thresh[5], g_cfg.thresh[6], g_cfg.thresh[7],
              g_cfg.mode_anti ? "ANTI" : "COINC", g_cfg.coinc_n, g_cfg.window,
-             g_cfg.ch_mask, g_cfg.cap_len, g_cfg.armed,
+             g_cfg.ch_mask, veto_str(), g_cfg.cap_len, g_cfg.armed,
              g_cfg.spec_enable, g_cfg.spec_input, g_cfg.spec_subband, g_cfg.spec_nspec);
 }
 
@@ -333,6 +351,22 @@ static void ctrl_handler(const char *line, char *r, size_t n)
             if (!strcasecmp(w3, "COINC"))     g_cfg.mode_anti = 0;
             else if (!strcasecmp(w3, "ANTI")) g_cfg.mode_anti = 1;
             else { snprintf(r, n, "ERR mode must be COINC or ANTI"); return; }
+        } else if (!strcasecmp(w2, "VETO")) {
+            /* anti-coincidence only: the channel blocks but never triggers */
+            long v = strtol(w3, &end, 0);
+            if (!veto_present()) {
+                snprintf(r, n, "ERR this bitstream has no VETO register (trigger core v2.1+)");
+                return;
+            }
+            if (!strcasecmp(w3, "OFF")) {
+                g_cfg.veto_en = 0;
+            } else if (*end || v < 0 || v >= LUNA_NCH) {
+                snprintf(r, n, "ERR VETO must be 0-7 or OFF");
+                return;
+            } else {
+                g_cfg.veto_en = 1;
+                g_cfg.veto_ch = (int)v;
+            }
         } else {
             long v = strtol(w3, &end, 0);
             if (*end) { snprintf(r, n, "ERR bad number '%s'", w3); return; }

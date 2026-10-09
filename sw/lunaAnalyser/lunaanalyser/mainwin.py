@@ -736,6 +736,8 @@ class AnalyserWindow(QMainWindow):
         t = evt.host_time_ns
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t / 1e9))
         mode = ("anti" if evt.mode else f"coinc N={evt.coinc_n}") + f", window {evt.window}"
+        if evt.veto_channel is not None:
+            mode += f", veto ch{evt.veto_channel}"
         name = (d.path.relative_to(self.dir) if self.dir and d.path.is_relative_to(self.dir)
                 else d.path.name)
         self.info.setText(

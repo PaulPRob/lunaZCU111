@@ -58,6 +58,10 @@ class Control:
     def set_mask(self, mask: int):
         return self.command(f"SET MASK 0x{int(mask):02X}")
 
+    def set_veto(self, ch: int | None):
+        """Anti-coincidence veto channel 0..7 (blocks, never triggers), or None = off."""
+        return self.command("SET VETO OFF" if ch is None else f"SET VETO {int(ch)}")
+
     def set_length(self, samples: int):
         return self.command(f"SET LEN {int(samples)}")
 

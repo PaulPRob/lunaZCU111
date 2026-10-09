@@ -4,6 +4,7 @@ examples
   luna-client status
   luna-client cmd "SET THRESH ALL 12000"
   luna-client set --thresh 12000 --mode coinc --n 2 --window 64 --mask 0xff --len 16384
+  luna-client set --mode anti --mask 0x7f --veto 7  # ch7 vetoes, never triggers
   luna-client record -o data/ -n 100          # save events as .npz
   luna-client watch                           # print a line per event
 """
@@ -23,8 +24,9 @@ from .protocol import CTRL_PORT, DATA_PORT, Event, EventStream
 def on_event(evt: Event) -> None:
     """STUB: put your own per-event analysis here."""
     pk = np.abs(evt.adc_codes()).max(axis=1)
+    veto = f"  veto ch{evt.veto_channel}" if evt.veto_channel is not None else ""
     print(f"seq {evt.seq:7d}  src {evt.trig_src:5s}  mask 0x{evt.trig_mask:02x} "
-          f"chans {evt.trig_channels}  t {evt.trig_time_s:14.9f} s  "
+          f"chans {evt.trig_channels}{veto}  t {evt.trig_time_s:14.9f} s  "
           f"L {evt.n_samples}  peak |code| {pk.tolist()}  lost {evt.lost}  dropped {evt.dropped}"
           + ("  [SIM]" if evt.simulated else ""))
 
@@ -34,7 +36,7 @@ def save_event(evt: Event, outdir: str) -> str:
     np.savez(fn, samples=evt.samples, seq=evt.seq, trig_sample=evt.trig_sample,
              start_sample=evt.start_sample, trig_offset=evt.trig_offset,
              trig_mask=evt.trig_mask, trig_src=evt.trig_src, window=evt.window,
-             coinc_n=evt.coinc_n, mode=evt.mode, lost=evt.lost,
+             coinc_n=evt.coinc_n, mode=evt.mode, veto=evt.veto, lost=evt.lost,
              host_time_ns=evt.host_time_ns, sample_rate_hz=evt.sample_rate_hz,
              thresholds=np.array(evt.thresholds))
     return fn
@@ -57,6 +59,7 @@ def main(argv=None) -> int:
     s.add_argument("--n", type=int, help="coincidence: channels required (1-8)")
     s.add_argument("--window", type=int, help="coincidence window in samples (1-255)")
     s.add_argument("--mask", type=lambda x: int(x, 0), help="channel mask, e.g. 0xff")
+    s.add_argument("--veto", help="anti-coincidence veto channel 0-7, or 'off'")
     s.add_argument("--len", type=int, help="capture length (4096-16384)")
     s.add_argument("--save", action="store_true", help="persist on the server")
     r = sub.add_parser("record", help="save events to .npz files")
@@ -89,6 +92,8 @@ def main(argv=None) -> int:
                     ctl.set_window(args.window)
                 if args.mask is not None:
                     ctl.set_mask(args.mask)
+                if args.veto is not None:
+                    ctl.set_veto(None if args.veto.lower() == "off" else int(args.veto))
                 if args.len is not None:
                     ctl.set_length(args.len)
                 if args.save:

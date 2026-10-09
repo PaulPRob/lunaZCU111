@@ -15,6 +15,7 @@ struct pl {
     struct hw_region buf;    /* DMA target buffer (reserved memory)         */
     struct hw_region spec;   /* spectrometer registers + spectrum banks     */
     int nbanks;
+    int has_veto;            /* VETO register present (core v2.1+)          */
     uint32_t ctrl_levels;    /* shadow of the CTRL level bits (ARM, IRQ_EN) */
     int has_spec;            /* spectrometer present (see spec.h)           */
     int spec_has_input;      /* INPUT register present (spectrometer v1.1+) */

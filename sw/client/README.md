@@ -59,7 +59,7 @@ uv run lunaGUI --font-size 10      # default: 2 pt below the desktop font (or LU
 
 **Main window**
 - Per channel: trigger enable (mask), threshold (16-bit units, also shown in ADC codes), hit rate from `GET RATES`, the rate of received events whose trigger mask includes the channel, and the `GET PEAKS` noise peak.
-- Mode, N, window and buffer length. **Apply** sends only the settings that changed. Changing the length asks for confirmation, because it discards captured events.
+- Mode, N, veto (anti-coincidence: a channel that blocks but never triggers; needs trigger core v2.1+), window and buffer length. **Apply** sends only the settings that changed. Changing the length asks for confirmation, because it discards captured events.
 - Arm/disarm, **SOFTTRIG – capture now** (forces one capture, armed or not), resync, save on the server, and a raw command line.
 - Status: FPGA trigger and lost rates (from `STATUS` counter differences), received events/s and MB/s, `seq` gaps, banks, SYSREF rate, RFDC state.
 - Spectrometer: enable, ADC input (0–7), subband (with its centre frequency) and integration time. **Apply** sends only what changed; every change restarts the integration. **Restart integration**, live status (`GET SPEC`: integrations, lost, restarts; spectra received and missed), and **Record spectra**: one `.npz` per integration (the same format as `luna-spec record`) in `<dir>/<prefix>spec_<date>_<time>/`, skipping integrations flagged "first after restart". The spectrum port is optional: with an older server only events and control are used.

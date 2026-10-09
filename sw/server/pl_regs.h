@@ -47,8 +47,12 @@
 #define TR_PEAK(i)       (0x080 + 4 * (i))
 #define TR_SYSREF_CNT    0x0A0
 #define TR_SCRATCH       0x0A4
+#define TR_VETO          0x0A8     /* VERSION 2.1+ */
+#define   VETO_CH(x)       ((x) & 0x7)
+#define   VETO_EN          (1u << 8)
 #define TR_ID_VALUE      0x4C554E41u
 #define TR_VERSION_SPEC  2u        /* VERSION major >= 2: spectrometer present */
+#define TR_VERSION_VETO  0x0201u   /* VERSION[31:8] >= 2.1: VETO register      */
 
 /* spectrometer (hw/hdl/spec_regs_axil.vhd), clk_spec domain */
 #define SPEC_BASE        0xA0140000u
