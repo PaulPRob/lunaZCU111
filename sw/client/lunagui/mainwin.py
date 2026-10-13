@@ -2,6 +2,7 @@
 status, recording."""
 from __future__ import annotations
 
+import csv
 import os
 import time
 
@@ -51,6 +52,41 @@ def _compact(lay: QLayout, spacing: int = 4, margin: int = 5):
             _compact(it.widget().layout(), spacing, margin)
 
 
+class RateLog:
+    """CSV of the per-channel trigger table, one row per status poll. The file
+    is opened on the first row, so a new one starts each time logging is
+    switched on."""
+
+    def __init__(self):
+        self.path = ""
+        self.rows = 0
+        self._f = None
+        self._w = None
+
+    @property
+    def active(self) -> bool:
+        return self._f is not None
+
+    def write(self, outdir: str, prefix: str, row: list):
+        if self._f is None:
+            os.makedirs(outdir, exist_ok=True)
+            self.path = os.path.join(outdir, f"{prefix}rates_{time.strftime('%Y%m%d_%H%M%S')}.csv")
+            self._f = open(self.path, "w", newline="")
+            self._w = csv.writer(self._f)
+            self._w.writerow(["time", "unix_s"] + [
+                f"{k}{c}" for c in range(NCH)
+                for k in ("thresh", "thresh_code", "hits_s", "trig_s", "peak_code")])
+            self.rows = 0
+        self._w.writerow(row)
+        self._f.flush()
+        self.rows += 1
+
+    def close(self):
+        if self._f is not None:
+            self._f.close()
+        self._f = self._w = None
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -70,6 +106,8 @@ class MainWindow(QMainWindow):
         self.server_spec: dict = {}          # spectrometer part of GET CONFIG
         self._prev_status: dict | None = None
         self._prev_rx = None            # (t, events, bytes, ch_trig, seq_gaps)
+        self.ratelog = RateLog()
+        self._prev_ratelog_rx = None    # (t, ch_trig) at the previous poll
 
         central = QWidget()
         top = QHBoxLayout(central)
@@ -423,6 +461,14 @@ class MainWindow(QMainWindow):
         self.btn_rec.setCheckable(True)
         self.btn_rec.clicked.connect(self._toggle_record)
         f.addRow(self.btn_rec)
+        self.ratelog_cb = QCheckBox("Log channel rates (CSV)")
+        self.ratelog_cb.setToolTip(
+            "At every status poll, append each channel's threshold (16-bit units and ADC "
+            "codes),\nhits/s, triggers/s and noise peak to "
+            "<directory>/<prefix>rates_<date>_<time>.csv")
+        self.ratelog_cb.setChecked(self.qs.value("rec/ratelog", "false") == "true")
+        self.ratelog_cb.toggled.connect(self._toggle_ratelog)
+        f.addRow(self.ratelog_cb)
         self.rec_lab = QLabel("not recording")
         self.rec_lab.setWordWrap(True)
         self.rec_lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -600,6 +646,7 @@ class MainWindow(QMainWindow):
         self.qs.setValue("conn/spec_port", self.spec_port.value())
         self._prev_status = None
         self._prev_rx = None
+        self._prev_ratelog_rx = None
         self.ctl = ControlWorker(host, self.ctrl_port.value(), self.poll.value(),
                                  self.poll_peaks.isChecked())
         ctl = self.ctl
@@ -713,6 +760,46 @@ class MainWindow(QMainWindow):
         else:
             self.recorder.stop()
 
+    def _toggle_ratelog(self, checked: bool):
+        self.qs.setValue("rec/ratelog", "true" if checked else "false")
+        if not checked and self.ratelog.active:
+            self.log(f"rate log closed: {self.ratelog.path}, {self.ratelog.rows} rows")
+            self.ratelog.close()
+        self._prev_ratelog_rx = None
+
+    def _log_rates(self, st: dict):
+        """One CSV row per poll: the values in the trigger table, with triggers/s
+        taken over the poll interval rather than the 1 s display timer."""
+        now = time.monotonic()
+        trig = [None] * NCH
+        if self.rx is not None:
+            ch = list(self.rx.c.ch_trig)
+            if self._prev_ratelog_rx is not None:
+                t0, ch0 = self._prev_ratelog_rx
+                if now > t0:
+                    trig = [(a - b) / (now - t0) for a, b in zip(ch, ch0)]
+            self._prev_ratelog_rx = (now, ch)
+        thr = self.server_cfg.get("thresh", [None] * NCH)
+        rates = st.get("_rates", [])
+        pk = st.get("_peaks") or []
+        row = [time.strftime("%Y-%m-%dT%H:%M:%S"), f"{time.time():.3f}"]
+        for c in range(NCH):
+            t = thr[c] if c < len(thr) else None
+            row += ["" if t is None else t, "" if t is None else f"{t / 16:.1f}",
+                    f"{rates[c]:.1f}" if c < len(rates) else "",
+                    "" if trig[c] is None else f"{trig[c]:.2f}",
+                    f"{pk[c] / 16:.0f}" if c < len(pk) else ""]
+        first = not self.ratelog.active
+        try:
+            self.ratelog.write(self.rec_dir.text(), self.rec_prefix.text(), row)
+        except OSError as e:
+            self.ratelog.close()
+            self.ratelog_cb.setChecked(False)
+            self.log(f"rate log stopped: {e}")
+            return
+        if first:
+            self.log(f"logging channel rates to {self.ratelog.path}")
+
     def _record_finished(self, msg: str):
         self.btn_rec.setChecked(False)
         self.btn_rec.setText("Start recording")
@@ -783,6 +870,8 @@ class MainWindow(QMainWindow):
 
     def _on_status(self, st: dict):
         prev, self._prev_status = self._prev_status, st
+        if self.ratelog_cb.isChecked():
+            self._log_rates(st)
         self._show_armed(st.get("armed") == "1")
         rates = st.get("_rates", [])
         for c in range(NCH):
@@ -864,6 +953,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, e):
         self.qs.setValue("main/geometry", self.saveGeometry())
         self._disconnect()
+        self.ratelog.close()
         self.plotter.stop()
         if self.plotwin is not None:
             self.plotwin.close()
