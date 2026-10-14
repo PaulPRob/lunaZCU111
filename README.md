@@ -1,6 +1,6 @@
 # lunaZCU111 – 8-channel 3.93 GS/s transient trigger and capture on the ZCU111, with an integrating spectrometer
 
-This design uses the ZCU111 (XCZU28DR RFSoC) to digitise 8 RF inputs at **3932.16 MSPS** (ADC PLLs referenced to 245.76 MHz, multi-tile synchronised). The PL checks every sample on every channel against its own programmable threshold. The trigger is either **N-of-8 coincidence** or **anti-coincidence** within a sample-exact window (default 64 samples). When it fires, **16384 samples** (programmable down to 4096) are captured on all 8 channels at the same time, with the trigger in the middle of the buffer. A server on the PS (Linux) gets an interrupt, reads each event by DMA and streams it over 1 GbE to clients. Thresholds and the rest of the configuration are set over the same link.
+This design uses the ZCU111 (XCZU28DR RFSoC) to digitise 8 RF inputs at **3932.16 MSPS** (ADC PLLs referenced to 245.76 MHz, multi-tile synchronised). The PL checks every sample on every channel against its own programmable threshold. The trigger is either **N-of-8 coincidence** or **anti-coincidence** within a sample-exact window (default 64 samples). In anti-coincidence mode one channel can be made a **veto**: it never starts a trigger, but its hit within the window blocks one. When it fires, **16384 samples** (programmable down to 4096) are captured on all 8 channels at the same time, with the trigger in the middle of the buffer. A server on the PS (Linux) gets an interrupt, reads each event by DMA and streams it over 1 GbE to clients. Thresholds and the rest of the configuration are set over the same link.
 
 Any one of the 8 ADC channels (selectable, default 0) also feeds an **integrating spectrometer**:
 - a 16-channel polyphase filter bank splits it into 17 coarse subbands of 122.88 MHz;
@@ -26,7 +26,7 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
   - streaming to the network client, which collects event data.
 - Harmless console messages: `I/O error, dev mtdblock0` (the unused QSPI flash) and the U-Boot environment/MAC/SATA warnings.
 
-**Spectrometer (branch `spectrometer`, in development):**
+**Spectrometer (branch `spectrometer`):**
 - **Done:**
   - HDL, block design, server (`SPEC` commands, TCP 5002), client (`luna-spec`) and lunaGUI (spectrometer panel and spectrum window);
   - input select: any of the 8 ADCs can feed the spectrometer (`SET SPEC_INPUT`, spectrometer v1.1);
@@ -40,7 +40,17 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
     - `clk_spec` domain +2.05 ns;
     - PL SYSREF capture +0.75 ns;
   - utilisation: 9.4 % LUTs, 696 DSPs (16 %), 34/80 URAM, 44.5 BRAM. The CSIRO PFB alone is 646 DSPs; the input selector adds about 500 LUTs and 2100 registers.
-- **Not yet done:** testing on the board.
+- **Tested on the board** (October 2026, with the `veto` build).
+
+**Veto (branch `veto`, built on the spectrometer branch):**
+- **Done:**
+  - HDL: VETO register (0x0A8, trigger core v2.1) and the veto in `trig_logic`; the event header (version 2) records the VETO register in byte 52;
+  - server (`SET VETO <0-7|OFF>`, `veto=` in `GET CONFIG`/`STATUS`, saved in `lunaserver.conf`), client (`luna-client set --veto`, `Event.veto`/`veto_channel`, `veto` in the `.npz`), lunaGUI (veto selector) and lunaAnalyser (shows the veto channel);
+  - the server detects the VETO register from the VERSION register; with an older bitstream it reports `veto=absent` and refuses `SET VETO`;
+  - xsim: the trigger model matches on 31 configurations (9 with a veto channel), and the capture test checks that the veto channel alone does not trigger, that it blocks a nearby hit on another channel, and the header veto byte;
+  - the FPGA build (with the spectrometer) meets timing: WNS +0.149 ns, WHS +0.010 ns, `clk_spec` +2.75 ns, PL SYSREF capture +0.34 ns setup / +1.55 ns hold; 9.43 % LUTs (the veto adds about 120), 696 DSPs, 34/80 URAM, 44.5 BRAM. SD images built.
+- lunaGUI can also log each channel's threshold, hits/s, triggers/s and noise peak to a CSV file at every status poll (*Log channel rates*).
+- **Tested on the board** (October 2026).
 
 ## Contents
 
@@ -98,6 +108,7 @@ sw/petalinux/setup.sh [--bsp ~/Downloads/xilinx-zcu111-v2023.2-final.bsp]
 cd sw/client && uv sync
 uv run luna-client status
 uv run luna-client set --thresh 8000 --mode coinc --n 2 --window 64 --mask 0xff --len 16384 --save
+uv run luna-client set --mode anti --mask 0x7f --veto 7  # anti-coincidence, ch7 = veto (--veto off)
 uv run luna-client record -o data/        # saves events as .npz
 uv run luna-spec status
 uv run luna-spec set --input 0 --subband 12 --tint 6 --on --save
@@ -117,6 +128,7 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 
 - **Releases** are git tags. Each one has a GitHub release with the SD card images (`BOOT.BIN`, `image.ub`, `boot.scr`), the XSA, the bitstream and the timing/utilisation reports, because build outputs are not tracked in git.
   - `v1.0`: first working hardware release (firmware VERSION 1.0, protocol version 1).
+  - Branch `veto` (not released yet): firmware VERSION 2.1 (major 2 = spectrometer, minor 1 = VETO register), event header version 2, spectrum header version 2.
 - **New features** are developed on a branch checked out in its own folder with `git worktree`, so the released design stays built and bootable alongside them:
 
   ```bash
@@ -150,6 +162,7 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 - Every sample is compared (|x| > threshold, per channel).
 - Per lane, the detector also tracks the number of samples since the last hit. This makes the window test exact at the sample level, across clock-cycle boundaries.
 - The definitions are in `docs/protocol.md` and `hw/hdl/trig_logic.vhd`. They are verified against a brute-force Python model on 31 configurations: N=1..8, windows 1–255, masks, anti-coincidence, veto.
+- **Veto** (anti-coincidence only, VETO register): each channel has two roles, registered from the configuration. It may *start* a trigger if it is in the mask and is not the veto channel. Its hits *block* other channels if it is in the mask or is the veto channel. So the veto channel never triggers, but a hit on it within ±W of a candidate blocks the trigger, whether or not it is in the mask. With the veto off this is plain anti-coincidence. In coincidence mode the VETO register is ignored.
 
 **Capture:**
 - 4 banks × 8 channels × 16384 × 16 bit in UltraRAM (32 of 80 URAMs).
@@ -194,6 +207,11 @@ Spectrometer (bitstream with trigger-core VERSION 2.x):
 9. `luna-spec set --subband 11`: the tone should disappear from the spectrum, or appear only near the subband edge. Change back with `--subband 12`.
 10. `luna-spec set --tint 0.1`: integrations should arrive every 0.1 s, with `lost 0` and `dropped 0`. Change back with `--tint 6 --save`.
 11. Move the tone to another input, for example ADC 5, then `luna-spec set --input 5`: the tone should appear again, and `luna-spec watch` should show `ADC 5`. With `--input 0` it should be gone. lunaGUI's *Spectrometer* panel and spectrum window should show the same.
+
+Veto (bitstream with trigger-core VERSION 2.1):
+
+12. The server log should show `pl: trigger core v2.1, 4 capture banks, veto`, and `luna-client status` should show `veto=OFF`.
+13. `luna-client set --mode anti --veto 7`. A pulse on channel 7 alone should give no event. A pulse on channel 0 alone should trigger, and `luna-client watch` should show `veto ch7`. The same pulse split to channels 0 and 7 should give no event. `--veto off` restores plain anti-coincidence.
 
 ## Troubleshooting and performance notes
 

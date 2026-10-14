@@ -6,6 +6,7 @@ A Python client for `lunaserver` on the ZCU111 (192.168.2.10). It receives captu
 uv sync
 uv run luna-client status
 uv run luna-client set --thresh 8000 --n 2 --window 64 --len 16384
+uv run luna-client set --mode anti --mask 0x7f --veto 7   # ch7 vetoes, never triggers (--veto off)
 uv run luna-client watch          # one line per event
 uv run luna-client record -o data # .npz per event
 
@@ -24,6 +25,7 @@ from lunaclient import Control, EventStream
 with Control("192.168.2.10") as ctl:
     ctl.set_threshold("ALL", 8000)
     ctl.set_mode("coinc"); ctl.set_coincidence(3); ctl.set_window(64)
+    # or: ctl.set_mode("anti"); ctl.set_veto(7)   # set_veto(None) = off
 
 with EventStream("192.168.2.10") as events:
     for evt in events:
@@ -42,6 +44,8 @@ with SpectrumStream("192.168.2.10") as spectra:
         f_hz, p = s.ordered()          # frequency-sorted; p = mean power per spectrum
         print(s.seq, s.adc_input, s.subband, s.tint_s, f_hz[p.argmax()] / 1e6)
 ```
+
+`evt.veto` is the VETO register at the time of the trigger (event header version 2; 0 from older firmware), and `evt.veto_channel` is the veto channel when the veto was in effect (anti-coincidence mode), otherwise `None`. `luna-client record` and lunaGUI store it as `veto` in each `.npz`.
 
 The per-event stub `on_event()` is in `lunaclient/cli.py`. The protocol is described in `../../docs/protocol.md`.
 
