@@ -70,6 +70,7 @@
 #define   SPS_ENABLED      (1u << 8)
 #define   SPS_RUNNING      (1u << 9)
 #define   SPS_WRITING      (1u << 10)
+#define   SPS_FIFO_ERR     (1u << 11) /* input FIFO underflow seen (v2.0+)     */
 #define SP_SUBBAND       0x010
 #define SP_ACC_LEN       0x014
 #define SP_RELEASE       0x018
@@ -86,6 +87,10 @@
 #define SP_HEAD_ACCLEN   0x038
 #define SP_HEAD_TS_LO    0x03C
 #define SP_HEAD_TS_HI    0x040
+#define SP_PFB_CFG       0x044     /* v2.0+: [7:0] M, [15:8] D, [23:16] taps  */
+#define   SPP_M(x)         ((x) & 0xFF)
+#define   SPP_D(x)         (((x) >> 8) & 0xFF)
+#define   SPP_T(x)         (((x) >> 16) & 0xFF)
 #define SP_MEM(bank)     (0x10000u + 0x8000u * (bank))   /* 4096 x 64 bit */
 #define SP_ID_VALUE      0x4C535043u
 

@@ -193,15 +193,23 @@ static void cmd_spec(char *r, size_t n)
         s.count = g_sim_spec_seq;
         s.restarts = g_sim_spec_restarts;
     }
+    /* bandwidth_mhz: the subband's own band (= spacing, fs/32); span_mhz: what
+     * the 4096 fine channels cover (fs/D); band_chans: fine channels inside
+     * the subband's own band */
+    const double span = FS_HZ / spec_decim();
     snprintf(r, n,
              "OK present=%d enabled=%d input=%d subband=%d nspec=%u tint=%.6f centre_mhz=%.3f "
-             "bandwidth_mhz=%.3f fine_khz=%.3f integrations=%u lost=%u restarts=%u "
-             "banks_full=%u clients=%d sent=%llu dropped=%llu",
+             "bandwidth_mhz=%.3f span_mhz=%.3f decim=%d fine_khz=%.3f tspec_us=%.3f "
+             "band_chans=%d integrations=%u lost=%u restarts=%u "
+             "banks_full=%u fifo_err=%d clients=%d sent=%llu dropped=%llu",
              spec_present(), g_cfg.spec_enable, g_cfg.spec_input, g_cfg.spec_subband,
              g_cfg.spec_nspec,
              spec_seconds(g_cfg.spec_nspec), spec_centre_hz(g_cfg.spec_subband) / 1e6,
-             FS_HZ / 32 / 1e6, FS_HZ / 32 / LUNA_SPEC_NCHAN / 1e3, s.count, s.lost, s.restarts,
-             SPS_NFULL(s.status), net_data_clients(g_net, NET_STREAM_SPEC),
+             FS_HZ / LUNA_SPEC_M / 1e6, span / 1e6, spec_decim(), spec_fine_hz() / 1e3,
+             spec_t_spectrum() * 1e6,
+             2 * (int)floor(FS_HZ / LUNA_SPEC_M / 2 / spec_fine_hz() + 1e-9),
+             s.count, s.lost, s.restarts,
+             SPS_NFULL(s.status), !!(s.status & SPS_FIFO_ERR), net_data_clients(g_net, NET_STREAM_SPEC),
              (unsigned long long)net_frames_sent(g_net, NET_STREAM_SPEC),
              (unsigned long long)net_frames_dropped(g_net, NET_STREAM_SPEC));
 }
@@ -235,6 +243,7 @@ static int set_spec(const char *key, const char *val, char *r, size_t n)
             return 0;
         }
         g_cfg.spec_nspec = spec_nspec_from_seconds(t);
+        g_cfg.spec_tint = spec_seconds(g_cfg.spec_nspec);
     } else if (!strcasecmp(key, "SPEC_NSPEC")) {
         unsigned long v = strtoul(val, &end, 0);
         if (*end || v < 1 || v > 0xFFFFFFFFul) {
@@ -242,6 +251,7 @@ static int set_spec(const char *key, const char *val, char *r, size_t n)
             return 0;
         }
         g_cfg.spec_nspec = (uint32_t)v;
+        g_cfg.spec_tint = spec_seconds(g_cfg.spec_nspec);
     } else {
         return 1;
     }
@@ -257,12 +267,14 @@ static int set_spec(const char *key, const char *val, char *r, size_t n)
 static void cmd_config(char *r, size_t n)
 {
     snprintf(r, n, "OK thresh=%u,%u,%u,%u,%u,%u,%u,%u mode=%s n=%d window=%d mask=0x%02X veto=%s "
-             "len=%d armed=%d spec_enable=%d spec_input=%d spec_subband=%d spec_nspec=%u",
+             "len=%d armed=%d spec_enable=%d spec_input=%d spec_subband=%d spec_nspec=%u "
+             "spec_tspec_us=%.3f",
              g_cfg.thresh[0], g_cfg.thresh[1], g_cfg.thresh[2], g_cfg.thresh[3],
              g_cfg.thresh[4], g_cfg.thresh[5], g_cfg.thresh[6], g_cfg.thresh[7],
              g_cfg.mode_anti ? "ANTI" : "COINC", g_cfg.coinc_n, g_cfg.window,
              g_cfg.ch_mask, veto_str(), g_cfg.cap_len, g_cfg.armed,
-             g_cfg.spec_enable, g_cfg.spec_input, g_cfg.spec_subband, g_cfg.spec_nspec);
+             g_cfg.spec_enable, g_cfg.spec_input, g_cfg.spec_subband, g_cfg.spec_nspec,
+             spec_t_spectrum() * 1e6);
 }
 
 static void cmd_rates(char *r, size_t n)
@@ -488,7 +500,8 @@ static void sim_spec_tick(void)
     h->n_spectra = g_cfg.spec_nspec;
     h->subband = (uint8_t)g_cfg.spec_subband;
     h->adc_input = (uint8_t)g_cfg.spec_input;
-    h->flags = g_sim_spec_first ? LUNA_SPEC_F_FIRST : 0;
+    h->flags = (g_sim_spec_first ? LUNA_SPEC_F_FIRST : 0) |
+               ((uint32_t)spec_decim() << LUNA_SPEC_F_DECIM_SHIFT);
     h->end_sample = (uint64_t)(now_s() * FS_HZ);
     h->restarts = g_sim_spec_restarts;
     g_sim_spec_first = 0;
@@ -554,6 +567,9 @@ static int hw_bringup(int program_clocks, int i2c_bus)
         return -1;
     if (spec_init(&g_pl) < 0)
         LOGW("spectrometer not available");
+    /* the integration time is kept; the number of spectra follows the
+     * bitstream's spectrum length */
+    g_cfg.spec_nspec = spec_nspec_from_seconds(g_cfg.spec_tint);
     apply_config();
     if (hw_irq_enable(&g_pl.trig) < 0)
         LOGW("no trigger interrupt (UIO) - polling the status register");
@@ -592,6 +608,7 @@ int main(int argc, char **argv)
     config_defaults(&g_cfg);
     config_load(&g_cfg, g_cfg_path);
     config_sanitize(&g_cfg);
+    g_cfg.spec_nspec = spec_nspec_from_seconds(g_cfg.spec_tint);
     clock_gettime(CLOCK_MONOTONIC, &g_last_hits_t);
 
     const int data_ports[2] = { data_port, spec_port };

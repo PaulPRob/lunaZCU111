@@ -9,6 +9,13 @@ Spectra (TCP 5002), one frame per spectrometer integration (of the ADC
 channel selected with SET SPEC_INPUT):
     spectrum header  64 bytes
     power            uint64 little endian, 4096 fine channels in FFT order
+
+The coarse filter bank spaces the 17 subbands fs/32 = 122.88 MHz apart and
+samples each at fs/D: D = 27 (oversampled 32/27, spectrometer v2) or 32
+(critically sampled, v1); D is in the header flags (version 3), 0 = 32.  So a
+fine channel is fs/D/4096 (35.556 kHz or 30 kHz), the 4096 channels span
+fs/D (145.64 or 122.88 MHz), and with D = 27 only the central 3456 channels
+(+-61.44 MHz) are the subband's own band; the rest overlap its neighbours.
 """
 from __future__ import annotations
 
@@ -31,9 +38,13 @@ SAMPLE_RATE_HZ = 3.93216e9
 SPEC_NCHAN = 4096                         # fine channels per subband
 SPEC_NSUB = 17                            # coarse channels 0..16
 SPEC_NINPUT = 8                           # selectable ADC channels
-SUBBAND_HZ = SAMPLE_RATE_HZ / 32          # 122.88 MHz: spacing and width
-FINE_HZ = SUBBAND_HZ / SPEC_NCHAN         # 30 kHz
-SPECTRUM_S = SPEC_NCHAN / SUBBAND_HZ      # one spectrum: 33.33 us
+SPEC_M = 32                               # coarse channel spacing fs/32
+SPEC_DECIM = 27                           # coarse decimation (32 in spectrometer v1)
+SUBBAND_HZ = SAMPLE_RATE_HZ / SPEC_M      # 122.88 MHz: spacing and own band
+SUBBAND_RATE_HZ = SAMPLE_RATE_HZ / SPEC_DECIM  # 145.636 MHz: span of the fine channels
+FINE_HZ = SUBBAND_RATE_HZ / SPEC_NCHAN    # 35.556 kHz
+SPECTRUM_S = SPEC_NCHAN / SUBBAND_RATE_HZ  # one spectrum: 28.125 us
+SPECTRUM_S_V1 = SPEC_NCHAN * SPEC_M / SAMPLE_RATE_HZ   # 33.33 us (older servers)
 
 # struct luna_frame_hdr (protocol.h)
 FRAME_HDR = struct.Struct("<4sHHIIQd8HI12x")
@@ -45,6 +56,7 @@ assert FRAME_HDR.size == 64 and EVENT_HDR.size == 64 and SPEC_HDR.size == 64
 
 SPEC_F_SIM = 1
 SPEC_F_FIRST = 2
+SPEC_F_DECIM_SHIFT = 8                    # flags[15:8]: coarse decimation (0 = 32)
 
 SRC_NAMES = {1: "coinc", 2: "anti", 3: "soft"}
 
@@ -135,16 +147,37 @@ class Spectrum:
     host_time_ns: int          # server CLOCK_REALTIME at readout
     sample_rate_hz: float
     power: np.ndarray = field(repr=False)   # uint64 (4096,), FFT order
+    decim: int = SPEC_M        # coarse decimation D: 27 (oversampled 32/27) or 32
+
+    @property
+    def rate_hz(self) -> float:
+        """Sample rate of the subband = span of the 4096 fine channels (fs/D)."""
+        return self.sample_rate_hz / self.decim
+
+    @property
+    def fine_hz(self) -> float:
+        """Width of a fine channel."""
+        return self.rate_hz / SPEC_NCHAN
+
+    @property
+    def spectrum_s(self) -> float:
+        """Length of one spectrum (28.125 us for D = 27)."""
+        return SPEC_NCHAN / self.rate_hz
 
     @property
     def tint_s(self) -> float:
         """Integration time in seconds."""
-        return self.n_spectra * SPEC_NCHAN / (self.sample_rate_hz / 32)
+        return self.n_spectra * self.spectrum_s
 
     @property
     def centre_hz(self) -> float:
         """Centre frequency of the subband (first Nyquist zone)."""
-        return self.subband * self.sample_rate_hz / 32
+        return self.subband * self.sample_rate_hz / SPEC_M
+
+    @property
+    def band_hz(self) -> float:
+        """The subband's own band (spacing of the subbands, fs/32 = 122.88 MHz)."""
+        return self.sample_rate_hz / SPEC_M
 
     @property
     def end_time_s(self) -> float:
@@ -153,7 +186,15 @@ class Spectrum:
 
     def offsets_hz(self) -> np.ndarray:
         """Frequency of each channel (FFT order) relative to the subband centre."""
-        return np.fft.fftfreq(SPEC_NCHAN, d=1.0) * (self.sample_rate_hz / 32)
+        return np.fft.fftfreq(SPEC_NCHAN, d=1.0) * self.rate_hz
+
+    def in_band(self) -> np.ndarray:
+        """True for the channels (FFT order) inside the subband's own band,
+        -61.44 MHz <= offset < +61.44 MHz (3456 channels for D = 27); the
+        others overlap the neighbouring subbands."""
+        off = self.offsets_hz()
+        half = self.band_hz / 2
+        return (off >= -half - 1e-3) & (off < half - 1e-3)
 
     def freqs_hz(self) -> np.ndarray:
         """Absolute frequency of each channel, FFT order (matches .power)."""
@@ -171,7 +212,9 @@ def parse_spec_frame(buf: bytes) -> Spectrum:
     if magic != SPEC_MAGIC or hdr != 64 or nchan != SPEC_NCHAN:
         raise ValueError(f"bad spectrum header {magic!r}")
     power = np.frombuffer(buf, dtype="<u8", count=nchan, offset=64)
+    decim = (flags >> SPEC_F_DECIM_SHIFT) & 0xFF
     return Spectrum(seq=seq, n_spectra=nspec, subband=subband, adc_input=adc_input,
+                    decim=decim if ver >= 3 and decim else SPEC_M,
                     first=bool(flags & SPEC_F_FIRST),
                     simulated=bool(flags & SPEC_F_SIM), lost=lost, dropped=dropped,
                     restarts=restarts, end_sample=end_sample, host_time_ns=host_ns,

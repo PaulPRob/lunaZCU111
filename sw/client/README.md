@@ -11,7 +11,7 @@ uv run luna-client watch          # one line per event
 uv run luna-client record -o data # .npz per event
 
 uv run luna-spec status                                # spectrometer settings and counters
-uv run luna-spec set --input 5 --subband 12 --tint 6   # ADC 5, 1474.56 MHz ± 61.44 MHz, 6 s
+uv run luna-spec set --input 5 --subband 12 --tint 6   # ADC 5, 1474.56 MHz ± 61.44 MHz (4096 x 35.556 kHz span ± 72.8 MHz), 6 s
 uv run luna-spec watch                                 # one line per integration
 uv run luna-spec record -o spectra --skip-first        # .npz per integration
 uv run --extra plot luna-spec plot                     # live matplotlib plot
@@ -43,7 +43,10 @@ with SpectrumStream("192.168.2.10") as spectra:
     for s in spectra:
         f_hz, p = s.ordered()          # frequency-sorted; p = mean power per spectrum
         print(s.seq, s.adc_input, s.subband, s.tint_s, f_hz[p.argmax()] / 1e6)
+        own = s.power[s.in_band()]     # the 3456 channels of the subband's own ±61.44 MHz
 ```
+
+`s.fine_hz` (35.556 kHz), `s.rate_hz` (145.64 MHz: the span of the 4096 channels), `s.spectrum_s` (28.125 µs) and `s.decim` (27) follow the server's bitstream: with a critically sampled v1 spectrometer they are 30 kHz, 122.88 MHz, 33.33 µs and 32.
 
 `evt.veto` is the VETO register at the time of the trigger (event header version 2; 0 from older firmware), and `evt.veto_channel` is the veto channel when the veto was in effect (anti-coincidence mode), otherwise `None`. `luna-client record` and lunaGUI store it as `veto` in each `.npz`.
 
@@ -78,7 +81,7 @@ uv run lunaGUI --font-size 10      # default: 2 pt below the desktop font (or LU
 - After a mouse zoom or pan, that axis stops following the data until you press **Reset zoom**.
 
 **Spectrum window**
-- The latest integration as mean power per 33.33 µs spectrum against absolute frequency (subband centre ± 61.44 MHz), in dB or linear, with its ADC, subband, integration time and peak.
+- The latest integration as mean power per 28.125 µs spectrum against absolute frequency (subband centre ± 72.8 MHz: the coarse filter bank is oversampled 32/27), in dB or linear, with its ADC, subband, integration time and peak. Dashed lines mark the subband's own band (± 61.44 MHz); outside it the channels overlap the neighbouring subbands. The peak readout is taken inside the band.
 - Running average over N integrations, max hold, and a waterfall of the most recent integrations. The waterfall keeps the maximum of each group of 4 fine channels, so narrow lines stay visible.
 - The average, max hold and waterfall restart automatically when the input, subband or integration length changes. *Skip 'first after restart'* ignores the first integration after a change.
 

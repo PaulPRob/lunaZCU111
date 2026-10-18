@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, 
                              QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from lunaclient.protocol import (CTRL_PORT, DATA_PORT, NCH, SPEC_NINPUT, SPEC_NSUB,
-                                 SPEC_PORT, SPECTRUM_S, SUBBAND_HZ)
+                                 SPEC_PORT, SPECTRUM_S, SPECTRUM_S_V1, SUBBAND_HZ)
 
 from .plotwin import PlotWindow
 from .specwin import SpecWindow
@@ -344,7 +344,8 @@ class MainWindow(QMainWindow):
         return g
 
     def _build_spec(self):
-        g = QGroupBox("Spectrometer (one ADC → 16-channel PFB → 4096-channel DFB)")
+        g = QGroupBox("Spectrometer (one ADC → 32/27 oversampled PFB → 4096-channel DFB)")
+        self._tspec = SPECTRUM_S              # one spectrum (s); from GET CONFIG
         v = QVBoxLayout(g)
         f = QGridLayout()
         self.spec_en = QCheckBox("Enabled")
@@ -354,7 +355,8 @@ class MainWindow(QMainWindow):
         self.spec_input.setToolTip("ADC channel feeding the spectrometer (SET SPEC_INPUT)")
         self.spec_sub = QSpinBox()
         self.spec_sub.setRange(0, SPEC_NSUB - 1)
-        self.spec_sub.setToolTip("Coarse channel: centre = k × 122.88 MHz, 122.88 MHz wide\n"
+        self.spec_sub.setToolTip("Coarse channel: centre = k × 122.88 MHz, its own band ±61.44 MHz;\n"
+                                 "the 4096 fine channels span ±72.8 MHz (oversampled 32/27)\n"
                                  "(0 and 16 are the real DC and Nyquist channels)")
         self.spec_sub_lab = QLabel()
         self.spec_tint = QDoubleSpinBox()
@@ -362,7 +364,7 @@ class MainWindow(QMainWindow):
         self.spec_tint.setRange(SPECTRUM_S, 100000.0)
         self.spec_tint.setSuffix(" s")
         self.spec_tint.setKeyboardTracking(False)
-        self.spec_tint.setToolTip("Integration time, rounded to whole spectra of 33.33 µs.\n"
+        self.spec_tint.setToolTip("Integration time, rounded to whole spectra of 28.125 µs.\n"
                                   "Below ~50 ms some integrations are lost.")
         self.spec_tint_lab = QLabel()
         self.spec_sub.valueChanged.connect(lambda k: self.spec_sub_lab.setText(
@@ -551,7 +553,7 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------- spectrometer
     def _spec_nspec(self) -> int:
-        return max(1, int(round(self.spec_tint.value() / SPECTRUM_S)))
+        return max(1, int(round(self.spec_tint.value() / self._tspec)))
 
     def _spec_widgets(self) -> dict:
         return {"enable": self.spec_en.isChecked(), "input": self.spec_input.currentData(),
@@ -858,10 +860,16 @@ class MainWindow(QMainWindow):
                 self.log(f"could not parse spectrometer config: {e}")
                 return
             self.server_spec = sc
+            # spectrum length of the server's bitstream (older servers: 33.33 us)
+            try:
+                self._tspec = float(kv["spec_tspec_us"]) * 1e-6
+            except (KeyError, ValueError):
+                self._tspec = SPECTRUM_S_V1
+            self.spec_tint.setMinimum(self._tspec)
             self.spec_en.setChecked(sc["enable"])
             self.spec_input.setCurrentIndex(sc["input"])
             self.spec_sub.setValue(sc["subband"])
-            self.spec_tint.setValue(sc["nspec"] * SPECTRUM_S)
+            self.spec_tint.setValue(sc["nspec"] * self._tspec)
             self.spec_dirty_lab.setText("")
 
     def _show_armed(self, armed: bool):

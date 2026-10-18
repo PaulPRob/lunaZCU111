@@ -1,10 +1,12 @@
 """luna-spec : spectrometer client for lunaserver.
 
 The FPGA takes one ADC channel (0-7, SET SPEC_INPUT), splits it into 17
-coarse channels ("subbands") of
-122.88 MHz (subband k is centred on k * 122.88 MHz), passes one of them to a
-4096-channel filter bank (30 kHz channels) and integrates the power.  Each
-integration arrives on TCP 5002.
+coarse channels ("subbands") 122.88 MHz apart (subband k is centred on
+k * 122.88 MHz) with a 32/27 oversampled filter bank, passes one of them,
+sampled at 145.64 MHz, to a 4096-channel filter bank (35.556 kHz channels,
+145.64 MHz span, of which the central 3456 channels = +-61.44 MHz are the
+subband's own band) and integrates the power.  Each integration arrives on
+TCP 5002.
 
 examples
   luna-spec status
@@ -23,12 +25,13 @@ import time
 import numpy as np
 
 from .control import Control, ControlError
-from .protocol import CTRL_PORT, FINE_HZ, SPEC_PORT, Spectrum, SpectrumStream
+from .protocol import CTRL_PORT, SPEC_PORT, Spectrum, SpectrumStream
 
 
 def describe(s: Spectrum) -> str:
     f, p = s.ordered()
-    k = int(np.argmax(p))
+    inb = np.fft.fftshift(s.in_band())
+    k = int(np.flatnonzero(inb)[np.argmax(p[inb])])    # peak in the subband's own band
     return (f"seq {s.seq:6d}  ADC {s.adc_input}  subband {s.subband:2d} ({s.centre_hz / 1e6:8.2f} MHz)  "
             f"tint {s.tint_s:8.3f} s  mean {p.mean():11.4e}  peak {p[k]:11.4e} @ {f[k] / 1e6:10.4f} MHz"
             f"  lost {s.lost}  dropped {s.dropped}"
@@ -41,11 +44,15 @@ def save_spectrum(s: Spectrum, outdir: str) -> str:
 
     power      uint64 (4096,) accumulated power, FFT order
     freqs_hz   float64 (4096,) absolute frequency of each element of power
+    in_band    bool (4096,) inside the subband's own +-61.44 MHz (the other
+               channels overlap the neighbouring subbands)
     n_spectra  spectra accumulated (mean power per spectrum = power / n_spectra)
+    decim      coarse decimation (27: fine_hz = fs/27/4096)
     """
     fn = os.path.join(outdir, f"spec_{s.host_time_ns}_{s.seq:08d}.npz")
-    np.savez(fn, power=s.power, freqs_hz=s.freqs_hz(), seq=s.seq, n_spectra=s.n_spectra,
-             subband=s.subband, adc_input=s.adc_input, centre_hz=s.centre_hz, fine_hz=FINE_HZ,
+    np.savez(fn, power=s.power, freqs_hz=s.freqs_hz(), in_band=s.in_band(), seq=s.seq,
+             n_spectra=s.n_spectra, subband=s.subband, adc_input=s.adc_input,
+             centre_hz=s.centre_hz, fine_hz=s.fine_hz, decim=s.decim,
              tint_s=s.tint_s,
              first=s.first, simulated=s.simulated, end_sample=s.end_sample,
              host_time_ns=s.host_time_ns, sample_rate_hz=s.sample_rate_hz, lost=s.lost,
@@ -72,6 +79,9 @@ def live_plot(stream: SpectrumStream, count: int) -> int:
             ax.set_xlabel("frequency (MHz)")
             ax.set_ylabel("power per spectrum (dB, arbitrary)")
             ax.grid(alpha=0.3)
+            # the subband's own band; outside it the channels overlap the neighbours
+            for e in (-1, 1):
+                ax.axvline((s.centre_hz + e * s.band_hz / 2) / 1e6, color="0.5", lw=0.8, ls="--")
         else:
             line.set_ydata(db)
             ax.relim()
@@ -102,7 +112,7 @@ def main(argv=None) -> int:
     s.add_argument("--subband", type=int, help="coarse channel 0-16 (centre = k * 122.88 MHz)")
     g = s.add_mutually_exclusive_group()
     g.add_argument("--tint", type=float, help="integration time in seconds (default 6)")
-    g.add_argument("--nspec", type=int, help="integration length in spectra of 33.33 us")
+    g.add_argument("--nspec", type=int, help="integration length in spectra of 28.125 us")
     g2 = s.add_mutually_exclusive_group()
     g2.add_argument("--on", action="store_true", help="enable the spectrometer")
     g2.add_argument("--off", action="store_true", help="disable the spectrometer")

@@ -102,7 +102,7 @@ class Control:
         return self.command(f"SET SPEC_SUBBAND {int(subband)}")
 
     def set_spec_tint(self, seconds: float):
-        """Integration time; rounded to a whole number of 33.33 us spectra."""
+        """Integration time; rounded to a whole number of spectra (28.125 us)."""
         return self.command(f"SET SPEC_TINT {float(seconds):.9g}")
 
     def set_spec_nspec(self, n: int):

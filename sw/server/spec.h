@@ -8,9 +8,8 @@
 #include "pl.h"
 #include "protocol.h"
 
-/* one spectrum: 4096 fine channels of 1/(122.88 MHz) * 4096 = 33.33 us */
-#define SPEC_T_SPECTRUM   (LUNA_SPEC_NCHAN / LUNA_SPEC_FFT_CLK)
 #define SPEC_FRAME_BYTES  (sizeof(struct luna_spec_hdr) + 8u * LUNA_SPEC_NCHAN)
+#define SPEC_FS_HZ        3.93216e9
 
 struct spec_status {
     uint32_t status;      /* SP_STATUS                              */
@@ -40,10 +39,20 @@ int  spec_has_input(const struct pl *p);
  */
 int  spec_read(struct pl *p, struct luna_spec_hdr *h, uint64_t *power);
 
+/*
+ * Coarse decimation D of the bitstream's filter bank: 27 (oversampled 32/27,
+ * spectrometer v2.0+, also the default without hardware) or 32 (critically
+ * sampled, v1.x).  The subband is sampled at fs/D, a fine channel is
+ * fs/D/4096 wide and one spectrum lasts 4096 * D / fs.
+ */
+int      spec_decim(void);
+double   spec_t_spectrum(void);      /* s: 28.125 us (D = 27), 33.33 us (32) */
+double   spec_fine_hz(void);         /* 35.556 kHz (D = 27), 30 kHz (32)    */
 /* integration time <-> number of spectra */
 uint32_t spec_nspec_from_seconds(double t);
 double   spec_seconds(uint32_t nspec);
-/* centre frequency of coarse channel 'subband' (Hz, first Nyquist zone) */
+/* centre frequency of coarse channel 'subband' (Hz, first Nyquist zone);
+ * the subbands are fs/32 = 122.88 MHz apart */
 double   spec_centre_hz(int subband);
 
 #endif

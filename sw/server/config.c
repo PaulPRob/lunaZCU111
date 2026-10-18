@@ -23,6 +23,7 @@ void config_defaults(struct luna_config *c)
     c->spec_input = 0;
     c->spec_subband = SPEC_SUBBAND_DEFAULT;
     c->spec_nspec = SPEC_NSPEC_DEFAULT;
+    c->spec_tint = SPEC_TINT_DEFAULT;
 }
 
 int config_sanitize(struct luna_config *c)
@@ -44,6 +45,7 @@ int config_sanitize(struct luna_config *c)
     if (c->spec_subband < 0) c->spec_subband = 0;
     if (c->spec_subband > LUNA_SPEC_NSUB - 1) c->spec_subband = LUNA_SPEC_NSUB - 1;
     if (c->spec_nspec < 1) c->spec_nspec = 1;
+    if (!(c->spec_tint > 0)) c->spec_tint = SPEC_TINT_DEFAULT;
     return 0;
 }
 
@@ -56,13 +58,18 @@ int config_load(struct luna_config *c, const char *path)
         return -1;
     }
     char line[256];
+    int have_tint = 0, have_nspec = 0;
     while (fgets(line, sizeof line, f)) {
         char key[64];
         long v;
         int ch;
+        double d;
         if (line[0] == '#')
             continue;
-        if (sscanf(line, "thresh%d = %li", &ch, &v) == 2 && ch >= 0 && ch < LUNA_NCH)
+        if (sscanf(line, "spec_tint = %lf", &d) == 1) {
+            c->spec_tint = d;
+            have_tint = 1;
+        } else if (sscanf(line, "thresh%d = %li", &ch, &v) == 2 && ch >= 0 && ch < LUNA_NCH)
             c->thresh[ch] = (uint16_t)v;
         else if (sscanf(line, "%63[a-z_] = %li", key, &v) == 2) {
             if (!strcmp(key, "mode_anti"))    c->mode_anti = (int)v;
@@ -76,10 +83,20 @@ int config_load(struct luna_config *c, const char *path)
             else if (!strcmp(key, "spec_enable"))  c->spec_enable = (int)v;
             else if (!strcmp(key, "spec_input"))   c->spec_input = (int)v;
             else if (!strcmp(key, "spec_subband")) c->spec_subband = (int)v;
-            else if (!strcmp(key, "spec_nspec"))   c->spec_nspec = (uint32_t)v;
+            else if (!strcmp(key, "spec_nspec")) {
+                c->spec_nspec = (uint32_t)v;
+                have_nspec = 1;
+            }
         }
     }
     fclose(f);
+    /* a file from before spec_tint: keep its integration time, which was
+     * spec_nspec spectra of the critically sampled spectrometer */
+    if (have_nspec && !have_tint) {
+        c->spec_tint = c->spec_nspec * SPEC_T_SPECTRUM_V1;
+        LOGI("config: spec_nspec = %u from an older server = %.6f s", c->spec_nspec,
+             c->spec_tint);
+    }
     config_sanitize(c);
     LOGI("config: loaded %s", path);
     return 0;
@@ -103,6 +120,7 @@ int config_save(const struct luna_config *c, const char *path)
     fprintf(f, "veto_enable = %d\nveto_ch = %d\n", c->veto_en, c->veto_ch);
     fprintf(f, "spec_enable = %d\nspec_input = %d\nspec_subband = %d\nspec_nspec = %u\n",
             c->spec_enable, c->spec_input, c->spec_subband, c->spec_nspec);
+    fprintf(f, "spec_tint = %.9g\n", c->spec_tint);
     fclose(f);
     if (rename(tmp, path) < 0) {
         LOGE("config: rename to %s: %s", path, strerror(errno));

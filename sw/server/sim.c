@@ -104,15 +104,16 @@ size_t sim_make_event(const struct luna_config *c, void *dst, size_t max,
 
 void sim_make_spectrum(const struct luna_config *c, uint64_t *power)
 {
-    /* noise with a coarse-channel passband shape (flat to +-40 MHz, rolling
-     * off towards the +-61.44 MHz edges) plus a tone whose fine channel
-     * depends on the subband and input, so a change is visible */
+    /* noise with the coarse-channel passband shape (flat to +-58 MHz, -0.5 dB
+     * at the +-61.44 MHz subband edges, falling off towards the +-72.8 MHz
+     * ends of the 4096 channels) plus a tone whose fine channel depends on
+     * the subband and input, so a change is visible */
     const double n = (double)c->spec_nspec;
     const int tone = 300 + 50 * c->spec_subband + 20 * c->spec_input;
     for (int k = 0; k < LUNA_SPEC_NCHAN; k++) {
         int f = k < LUNA_SPEC_NCHAN / 2 ? k : k - LUNA_SPEC_NCHAN;   /* -2048..2047 */
         double x = abs(f) / (LUNA_SPEC_NCHAN / 2.0);                 /* 0..1 */
-        double shape = x < 0.65 ? 1.0 : exp(-(x - 0.65) * (x - 0.65) / 0.02);
+        double shape = x < 0.8 ? 1.0 : exp(-(x - 0.8) * (x - 0.8) / 0.0018);
         double p = 1.0e6 * (0.05 + shape);
         if (f == tone)
             p += 2.0e8;

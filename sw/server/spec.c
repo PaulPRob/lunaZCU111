@@ -15,7 +15,10 @@
 #include "log.h"
 #include "pl_regs.h"
 
-#define FS_HZ 3.93216e9
+#define FS_HZ SPEC_FS_HZ
+
+/* coarse decimation of the bitstream (spec_decim) */
+static int g_decim = LUNA_SPEC_D;
 
 int spec_init(struct pl *p)
 {
@@ -38,6 +41,22 @@ int spec_init(struct pl *p)
     p->spec_has_input = (sv >> 16) > 1 || ((sv >> 16) == 1 && ((sv >> 8) & 0xFF) >= 1);
     if (!p->spec_has_input)
         LOGW("spec: no input selector in this bitstream - ADC channel 0 only");
+    if ((sv >> 16) >= 2) {
+        uint32_t pc = hw_rd(&p->spec, SP_PFB_CFG);
+        g_decim = (int)SPP_D(pc);
+        if (SPP_M(pc) != LUNA_SPEC_M || g_decim < 16 || g_decim > LUNA_SPEC_M) {
+            LOGW("spec: unexpected PFB_CFG 0x%08x - assuming D = %d", pc, LUNA_SPEC_D);
+            g_decim = LUNA_SPEC_D;
+        }
+        LOGI("spec: coarse filter bank %u branches, %u taps each, decimation %d "
+             "(oversampled %u/%d): fine channel %.3f kHz, spectrum %.3f us",
+             SPP_M(pc), SPP_T(pc), g_decim, SPP_M(pc), g_decim,
+             spec_fine_hz() / 1e3, spec_t_spectrum() * 1e6);
+    } else {
+        g_decim = LUNA_SPEC_M;
+        LOGI("spec: critically sampled coarse filter bank (v1): fine channel %.3f kHz, "
+             "spectrum %.3f us", spec_fine_hz() / 1e3, spec_t_spectrum() * 1e6);
+    }
     /* drop anything left from a previous run */
     hw_wr(&p->spec, SP_CTRL, SPC_CNT_CLEAR);
     while (SPS_NFULL(hw_rd(&p->spec, SP_STATUS)))
@@ -100,7 +119,8 @@ int spec_read(struct pl *p, struct luna_spec_hdr *h, uint64_t *power)
     h->n_spectra = hw_rd(&p->spec, SP_HEAD_ACCLEN) + 1;
     h->subband = (uint8_t)SPF_SUBBAND(flags);
     h->adc_input = (uint8_t)SPF_INPUT(flags);
-    h->flags = (flags & SPF_FIRST) ? LUNA_SPEC_F_FIRST : 0;
+    h->flags = ((flags & SPF_FIRST) ? LUNA_SPEC_F_FIRST : 0) |
+               ((uint32_t)g_decim << LUNA_SPEC_F_DECIM_SHIFT);
     h->end_sample = ((uint64_t)hw_rd(&p->spec, SP_HEAD_TS_HI) << 32) |
                     hw_rd(&p->spec, SP_HEAD_TS_LO);
     for (int k = 0; k < LUNA_SPEC_NCHAN; k++) {
@@ -119,9 +139,24 @@ int spec_has_input(const struct pl *p)
     return p->has_spec && p->spec_has_input;
 }
 
+int spec_decim(void)
+{
+    return g_decim;
+}
+
+double spec_t_spectrum(void)
+{
+    return LUNA_SPEC_NCHAN * (double)g_decim / FS_HZ;
+}
+
+double spec_fine_hz(void)
+{
+    return FS_HZ / g_decim / LUNA_SPEC_NCHAN;
+}
+
 uint32_t spec_nspec_from_seconds(double t)
 {
-    double n = floor(t / SPEC_T_SPECTRUM + 0.5);
+    double n = floor(t / spec_t_spectrum() + 0.5);
     if (n < 1)
         n = 1;
     if (n > 4294967295.0)
@@ -131,10 +166,10 @@ uint32_t spec_nspec_from_seconds(double t)
 
 double spec_seconds(uint32_t nspec)
 {
-    return nspec * SPEC_T_SPECTRUM;
+    return nspec * spec_t_spectrum();
 }
 
 double spec_centre_hz(int subband)
 {
-    return subband * FS_HZ / 32.0;
+    return subband * FS_HZ / LUNA_SPEC_M;
 }

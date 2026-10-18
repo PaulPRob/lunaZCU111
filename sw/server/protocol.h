@@ -13,9 +13,14 @@
  *     (on the ADC channel selected with SET SPEC_INPUT, default 0)
  *     struct luna_spec_hdr       64 bytes
  *     uint64_t power[4096]       accumulated power per fine channel, FFT
- *                                order: channel k is k*30 kHz from the
- *                                subband centre for k < 2048, (k-4096)*30 kHz
- *                                for k >= 2048
+ *                                order: channel k is k*df from the subband
+ *                                centre for k < 2048, (k-4096)*df for
+ *                                k >= 2048, df = fs/D/4096 with the coarse
+ *                                decimation D from flags[15:8] (27: df =
+ *                                35.556 kHz, the 4096 channels span 145.64 MHz
+ *                                and |k*df| <= 61.44 MHz is the subband's own
+ *                                band; 0 in version <= 2 frames means D = 32,
+ *                                df = 30 kHz)
  *
  * All multi-byte fields are little endian.
  */
@@ -37,7 +42,8 @@
 #define LUNA_SPEC_MAGIC     0x4350534Cu   /* "LSPC" */
 #define LUNA_PROTO_VERSION  1
 #define LUNA_EVENT_VERSION  2             /* 2: veto byte (trigger core v2.1+) */
-#define LUNA_SPEC_VERSION   2             /* 2: adc_input field          */
+#define LUNA_SPEC_VERSION   3             /* 2: adc_input field
+                                             3: coarse decimation in flags  */
 
 /* every frame header is 64 bytes with the per-client 'dropped' count at 48 */
 #define LUNA_HDR_BYTES       64
@@ -47,7 +53,10 @@
 #define LUNA_SPEC_NCHAN     4096          /* fine channels per subband       */
 #define LUNA_SPEC_NSUB      17            /* coarse channels 0..16           */
 #define LUNA_SPEC_NINPUT    8             /* ADC channels selectable         */
-#define LUNA_SPEC_FFT_CLK   122.88e6      /* complex samples/s per subband   */
+#define LUNA_SPEC_M         32            /* coarse channel spacing fs/32    */
+#define LUNA_SPEC_D         27            /* coarse channel rate fs/27: 32/27
+                                             oversampled (32 = critically
+                                             sampled, spectrometer v1)      */
 
 /* trigger source codes (luna_event_hdr.trig_src) */
 #define LUNA_SRC_COINC 1
@@ -64,6 +73,10 @@
                                              restart (enable, SUBBAND or
                                              integration time change); its
                                              data are all from after it     */
+#define LUNA_SPEC_F_DECIM_SHIFT 8         /* flags[15:8]: coarse decimation D
+                                             (fine channel = fs/D/4096);
+                                             0 (version <= 2) means 32      */
+#define LUNA_SPEC_F_DECIM(f) (((f) >> LUNA_SPEC_F_DECIM_SHIFT) & 0xFFu)
 
 struct luna_frame_hdr {
     uint32_t magic;           /* LUNA_FRAME_MAGIC                            */
@@ -105,7 +118,7 @@ struct luna_spec_hdr {
     uint16_t version;         /* LUNA_SPEC_VERSION                           */
     uint16_t hdr_bytes;       /* 64                                          */
     uint32_t frame_bytes;     /* 64 + 8 * n_channels                         */
-    uint32_t flags;           /* LUNA_SPEC_F_*                               */
+    uint32_t flags;           /* LUNA_SPEC_F_*, [15:8] coarse decimation     */
     uint64_t host_time_ns;    /* CLOCK_REALTIME when the spectrum was read   */
     uint64_t end_sample;      /* ADC sample counter (trigger time base) when
                                  the integration ended                       */

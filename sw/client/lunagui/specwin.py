@@ -1,11 +1,16 @@
 """lunaGUI spectrum window: live spectrometer integrations (TCP 5002).
 
-The power of each integration is shown as the mean power per 33.33 us
+The power of each integration is shown as the mean power per 28.125 us
 spectrum (power / n_spectra), against absolute frequency (subband centre +
 fine-channel offset), with an optional running average over integrations,
 max hold, and a waterfall of the most recent integrations.  The average,
 max hold and waterfall restart when the ADC input, subband or integration
 length changes.
+
+The coarse filter bank is oversampled 32/27, so the 4096 fine channels span
+145.64 MHz while the subband's own band is the central 122.88 MHz (+-61.44
+MHz, dashed lines); the channels outside it overlap the neighbouring
+subbands.  The peak readout is taken inside the band.
 """
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ class SpecWindow(QMainWindow):
         self.resize(1400, 900)
         self._key = None                      # (input, subband, n_spectra)
         self._freq_mhz = None
+        self._in_band = None
         self._sum = None
         self._navg = 0
         self._hist: list[np.ndarray] = []     # recent mean spectra (for averaging)
@@ -61,6 +67,13 @@ class SpecWindow(QMainWindow):
         self.plot.hideButtons()
         self.curve = self.plot.plot(pen=pg.mkPen((60, 140, 230), width=1))
         self.maxcurve = self.plot.plot(pen=pg.mkPen((220, 120, 40), width=1))
+        # edges of the subband's own band (centre +- 61.44 MHz)
+        self.edges = []
+        for _ in range(2):
+            ln = pg.InfiniteLine(angle=90, movable=False,
+                                 pen=pg.mkPen((140, 140, 140), width=1, style=Qt.PenStyle.DashLine))
+            self.plot.addItem(ln)
+            self.edges.append(ln)
         self.plot.vb.sigRangeChangedManually.connect(self._user_zoom)
 
         self.wfplot = self.glw.addPlot(row=1, col=0)
@@ -179,6 +192,7 @@ class SpecWindow(QMainWindow):
             self._user_x = False
         f, p = s.ordered()                   # Hz, mean power per spectrum
         self._freq_mhz = f / 1e6
+        self._in_band = np.fft.fftshift(s.in_band())
         self._hist.append(p)
         if len(self._hist) > self.avg.value():
             del self._hist[0]
@@ -229,11 +243,15 @@ class SpecWindow(QMainWindow):
             self.wfimg.setRect(f_hz[0] - df / 2, 0, f_hz[-1] - f_hz[0] + df, img.shape[0])
             self.wfplot.setYRange(0, img.shape[0], padding=0)
             self.wfplot.vb.invertY(True)
-        k = int(np.argmax(mean))
+        for e, ln in zip((-1, 1), self.edges):
+            ln.setValue(s.centre_hz + e * s.band_hz / 2)
+        idx = np.flatnonzero(self._in_band)
+        k = int(idx[np.argmax(mean[idx])])
         ts = time.strftime("%H:%M:%S", time.localtime(s.host_time_ns / 1e9))
         self.info.setText(
             f"<b>ADC {s.adc_input}</b> &nbsp; subband <b>{s.subband}</b> "
-            f"({s.centre_hz / 1e6:.2f} MHz ± 61.44 MHz) &nbsp; seq <b>{s.seq}</b> &nbsp; "
+            f"({s.centre_hz / 1e6:.2f} MHz ± {s.band_hz / 2e6:.2f} MHz, "
+            f"{s.fine_hz / 1e3:.3f} kHz channels) &nbsp; seq <b>{s.seq}</b> &nbsp; "
             f"t<sub>int</sub> {s.tint_s:.3f} s ({s.n_spectra} spectra) &nbsp; {ts} &nbsp; "
             f"average {len(self._hist)} &nbsp; peak {self._freq_mhz[k]:.4f} MHz "
             f"({10 * np.log10(max(mean[k], 1e-3)):.1f} dB) &nbsp; "
