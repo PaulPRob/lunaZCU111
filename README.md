@@ -3,8 +3,8 @@
 This design uses the ZCU111 (XCZU28DR RFSoC) to digitise 8 RF inputs at **3932.16 MSPS** (ADC PLLs referenced to 245.76 MHz, multi-tile synchronised). The PL checks every sample on every channel against its own programmable threshold. The trigger is either **N-of-8 coincidence** or **anti-coincidence** within a sample-exact window (default 64 samples). In anti-coincidence mode one channel can be made a **veto**: it never starts a trigger, but its hit within the window blocks one. When it fires, **16384 samples** (programmable down to 4096) are captured on all 8 channels at the same time, with the trigger in the middle of the buffer. A server on the PS (Linux) gets an interrupt, reads each event by DMA and streams it over 1 GbE to clients. Thresholds and the rest of the configuration are set over the same link.
 
 Any one of the 8 ADC channels (selectable, default 0) also feeds an **integrating spectrometer**:
-- a 16-channel polyphase filter bank splits it into 17 coarse subbands of 122.88 MHz;
-- a selectable subband goes to a 4096-channel filter bank with 30 kHz channels;
+- a 32/27 oversampled polyphase filter bank splits it into 17 coarse subbands, 122.88 MHz apart, each sampled at 145.64 MHz so that its own ±61.44 MHz band is free of aliasing (≤ −72 dB);
+- a selectable subband goes to a 4096-channel filter bank with 35.556 kHz channels (145.64 MHz span; the central 3456 channels are the subband's own band);
 - the power is integrated, 6.000 s by default;
 - each integration is streamed on its own TCP port (5002).
 
@@ -52,14 +52,23 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 - lunaGUI can also log each channel's threshold, hits/s, triggers/s and noise peak to a CSV file at every status poll (*Log channel rates*).
 - **Tested on the board** (October 2026).
 
+**Oversampled coarse filter bank (branch `veto-osfb`, built on `veto`; spectrometer v2.0):**
+- **Done:**
+  - the critically sampled CSIRO `pfb32x16t` + `rnd_23_18` are replaced by `ospfb` (our VHDL): 32 branches oversampled 32/27, 512-tap equiripple prototype, only the selected subband computed. `clk_spec` is now fs/27 = 145.636 MHz (MMCM CLKOUT0 ÷ 6.75), fed through a 16→27 gearbox and an async FIFO. Fine channels are 35.556 kHz (span 145.64 MHz, 3456 channels in the subband's own band), a spectrum is 28.125 µs, the default 6 s is 213333 spectra;
+  - server (PFB_CFG detection, `GET SPEC` decim/span/tspec/band_chans/fifo_err, frame version 3 with the decimation in the flags, integration time saved in seconds), `lunaclient` (`Spectrum.fine_hz`, `in_band()`, …), `luna-spec` and lunaGUI (band edges marked, peak taken inside the band);
+  - xsim: `ospfb` is bit-exact with `hw/sim/ospfb_model.py` on subbands 0, 1, 7, 12, 15, 16; the full spectrometer with the CSIRO DFB (`run_sim.sh spec`, ~10 min) puts the tones in channels 25/3996 at 16.00:1, a +65 MHz tone in channel 1828 at the predicted −1.9 dB, and an aliasing +90 MHz tone 73 dB down; the restart test and the trigger/capture tests still pass;
+  - the FPGA build meets timing: WNS +0.029 ns (the clk_2x → clk_1x gearbox transfer), WHS +0.009 ns, `clk_spec` +0.546 ns, clk_1x → clk_spec FIFO +3.1 ns, PL SYSREF capture +0.30 ns setup / +1.20 ns hold (clk_2x/clk_1x carry a 0.763 ns phase shift to keep this centred with the new 983.04 MHz VCO); 7.7 % LUTs, 6.2 % registers, 661 DSPs (15.5 %), 34/80 URAM, 44.5 BRAM. SD images built.
+- **Not yet tested on the board.**
+
 ## Contents
 
 | Path | What |
 |------|------|
-| `hw/hdl/*.vhd` | VHDL: gearbox, detector, trigger logic, capture banks, readout, registers, SYSREF capture, spectrometer (`spectrometer_top`, `spec_regs_axil`) |
-| `hw/sim/` | xsim testbenches, Python golden models, `run_sim.sh` (`spec`: spectrometer with the CSIRO cores) |
+| `hw/hdl/*.vhd` | VHDL: gearbox, detector, trigger logic, capture banks, readout, registers, SYSREF capture, spectrometer (`spectrometer_top`, `gearbox_16_27`, `ospfb` + generated `ospfb_pkg`, `spec_regs_axil`) |
+| `hw/sim/` | xsim testbenches, Python golden models (`ospfb_model.py`: bit-exact model of the coarse filter bank), `run_sim.sh` (`spec`: spectrometer with the CSIRO DFB core) |
+| `hw/scripts/gen_ospfb_coefs.py` | designs the coarse filter bank's 512-tap prototype and writes `hw/hdl/ospfb_pkg.vhd` and `hw/sim/ospfb_coefs.json` (needs scipy: `uv run --no-project --with numpy --with scipy ...`) |
 | `hw/scripts/build_bd.tcl` | Vivado block design (PS, RFDC, MMCM, DMA, spectrometer, interconnect, IRQs) |
-| `hw/scripts/spec_ip.tcl` | creates the CSIRO PFB/DFB IP instances from `refernces/PFB` (local only, see below) |
+| `hw/scripts/spec_ip.tcl` | creates the CSIRO DFB IP instance from `refernces/PFB` (local only, see below) |
 | `hw/scripts/build.tcl` | unattended build → bitstream + `hw/build/lunaZCU111.xsa` |
 | `hw/scripts/export_bd_image.tcl` | exports the Vivado BD picture (GUI mode) |
 | `hw/constraints/zcu111.xdc` | PL reference clock and PL SYSREF pins |
@@ -69,7 +78,7 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 | `sw/petalinux/` | PetaLinux 2023.2 layer (device tree, kernel config, recipe) + `setup.sh` |
 | `docs/` | block diagram, register map, network protocol |
 | `refernces/` | TICS Pro clock files (as supplied); the ZCU111 user guide and schematic PDFs are not in git, see `refernces/README.md` |
-| `refernces/PFB/` | **not in git (CSIRO IP, kept local):** System Generator cores `pfb32x16t_v1_6`, `dfb4096x1c_v2_0`, `rnd_23_18_v1_0`. Needed by the FPGA build and `run_sim.sh spec`. Copy the folder into a fresh clone, or set `LUNA_PFB_IP` to its path |
+| `refernces/PFB/` | **not in git (CSIRO IP, kept local):** System Generator cores; the build uses only `dfb4096x1c_v2_0` (`pfb32x16t_v1_6` and `rnd_23_18_v1_0` were used by spectrometer v1.x). Needed by the FPGA build and `run_sim.sh spec`. Copy the folder into a fresh clone, or set `LUNA_PFB_IP` to its path |
 
 ## Tools
 
@@ -86,9 +95,10 @@ Keep Vivado parallelism at 2–4 jobs. More jobs run out of memory on this 16 GB
 ## Build
 
 ```bash
-# 1. VHDL unit simulations (≈2 min)
+# 1. VHDL unit simulations (≈3 min), including the coarse filter bank against
+#    its bit-exact model (run_sim.sh os)
 hw/sim/run_sim.sh
-#    spectrometer with the real CSIRO cores (needs refernces/PFB, much longer)
+#    spectrometer with the real CSIRO DFB core (needs refernces/PFB, ~30 min)
 hw/sim/run_sim.sh spec
 
 # 2. FPGA: block design, synthesis, implementation, bitstream, XSA (about 1 h)
@@ -175,15 +185,17 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 
 **Spectrometer** (`hw/hdl/spectrometer_top.vhd`, one ADC channel):
 - **Input select:** the trigger core passes all 8 channels' 16-sample words (`spec_words`) and its sample counter (`spec_ts`) to the spectrometer. The INPUT register (`SET SPEC_INPUT`, default 0) picks one with a pipelined 8:1 mux at 245.76 MHz: one register per channel, then 4:1, then 2:1.
-- **Clock:** a third MMCM output, `clk_spec` 122.88 MHz, phase-aligned with `clk_1x`. A 2:1 gearbox makes 32 samples per `clk_spec` cycle.
-- **Coarse filter bank:** `pfb32x16t`, 32 real samples in, 17 complex subbands out. Subband k is 122.88 MHz wide and centred on k × 122.88 MHz. Subbands 0 and 16 are real.
-- **Subband select:** a mux picks one subband (SUBBAND register, default 12 = 1474.56 MHz), and `rnd_23_18` rounds it from 23 to 18 bits.
-- **Fine filter bank:** `dfb4096x1c`, 4096 channels of 30 kHz, with power and accumulation over ACC_LEN + 1 spectra of 33.33 µs. The default is 180000 spectra = 6.000 s.
+- **Clock:** `clk_spec` = fs/27 = 145.636 MHz, from the MMCM's fractional output (CLKOUT0, 983.04 MHz / 6.75); `clk_2x` and `clk_1x` moved to CLKOUT1/2. `gearbox_16_27` regroups the 16 samples per `clk_1x` cycle into words of 27 samples (16 words every 27 cycles), which cross to `clk_spec` through an XPM asynchronous FIFO (read every cycle once half full; the two rates are exactly equal).
+- **Coarse filter bank:** `ospfb` (our VHDL, spectrometer v2.0), a 32-branch real polyphase filter bank oversampled 32/27 with a 512-tap equiripple prototype (`hw/scripts/gen_ospfb_coefs.py`). Subbands are 122.88 MHz apart, subband k centred on k × 122.88 MHz and sampled at 145.636 MS/s complex. It is flat to ±58 MHz, −0.5 dB at the ±61.44 MHz subband edges, −3 dB at ±66.5 MHz, and anything that aliases into ±61.44 MHz is ≤ −72 dB. With the critically sampled CSIRO `pfb32x16t` of v1.x the edges were −6 dB and the outer fine channels held aliases of the neighbouring subband.
+  - **Only the selected subband is computed** (SUBBAND register, default 12 = 1474.56 MHz): a polyphase FIR of 32 systolic 16-tap DSP chains, a single-bin DFT (pairs pre-added, 31 multipliers), and a rotation by e^(−j2πk·27m/32) that accounts for the decimation by 27 rather than 32 and also corrects the filter gain. Subbands 0 and 16 are real.
+  - The output (18 bit) has the same scale as the old `pfb32x16t` + `rnd_23_18`: a passband tone of peak A codes gives |out| = 32·A.
+- **Fine filter bank:** `dfb4096x1c`, 4096 channels of 35.556 kHz spanning 145.636 MHz, with power and accumulation over ACC_LEN + 1 spectra of 28.125 µs. The default is 213333 spectra = 6.000 s. The central 3456 channels (±61.44 MHz) are the subband's own band; the outer 640 overlap the neighbouring subbands (lunaGUI and `luna-spec plot` mark the band edges).
 - **Storage:** each integration is written to one of 2 banks of 4096 × 64 bit in UltraRAM. An interrupt (SPI 92) tells `lunaserver`, which reads the bank over AXI-Lite (about 3 ms) and sends it to every client on TCP 5002.
 - **Control:** enable/disable, input, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_INPUT`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`), or from lunaGUI. Any change restarts the integration immediately. The FPGA discards the filter bank's output until it has re-synchronised (about 6 spectra), so the first integration after a change is clean; it is flagged "first after restart" for information.
-- **The CSIRO cores are not in this repository:**
-  - They live in `refernces/PFB/` (gitignored), from System Generator 2018.2.
-  - `hw/scripts/spec_ip.tcl` creates them as IP-catalog instances, and the build stops with a clear message if the folder is missing.
+- **The CSIRO DFB core is not in this repository:**
+  - It lives in `refernces/PFB/` (gitignored), from System Generator 2018.2.
+  - `hw/scripts/spec_ip.tcl` creates it as an IP-catalog instance, and the build stops with a clear message if the folder is missing.
+- **Software:** the server reads PFB_CFG (decimation 27) and reports `decim`, `span_mhz`, `fine_khz`, `tspec_us` and `band_chans` in `GET SPEC`; spectrum frames (version 3) carry the decimation in flags[15:8], so `lunaclient` gets the channel width right for both v1 and v2 bitstreams. The integration time is saved in seconds, so a saved 6 s stays 6 s.
 
 ## Bring-up checklist
 
@@ -202,9 +214,10 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 
 Spectrometer (bitstream with trigger-core VERSION 2.x):
 
-7. The server log should show `spec: spectrometer v1.1, 2 banks`. Then `luna-spec status` should show `present 1`, `enabled 1`, `input 0`, `subband 12`, `tint 6.000000`.
-8. Feed a CW tone into ADC 0 (RFMC_ADC_00), for example 1476.06 MHz: the centre of subband 12 (1474.56 MHz) + 1.5 MHz. `luna-spec watch` should show the peak at 1476.06 MHz every 6 s, and `luna-spec plot` should show it on the plot.
-9. `luna-spec set --subband 11`: the tone should disappear from the spectrum, or appear only near the subband edge. Change back with `--subband 12`.
+7. The server log should show `spec: spectrometer v2.0, 2 banks` and `coarse filter bank 32 branches, 16 taps each, decimation 27 (oversampled 32/27): fine channel 35.556 kHz, spectrum 28.125 us`. Then `luna-spec status` should show `present 1`, `enabled 1`, `input 0`, `subband 12`, `tint 5.999991`, `decim 27`, `fine_khz 35.556`, `fifo_err 0`.
+8. Feed a CW tone into ADC 0 (RFMC_ADC_00), for example 1476.06 MHz: the centre of subband 12 (1474.56 MHz) + 1.5 MHz. `luna-spec watch` should show the peak at 1476.06 MHz (to within one 35.6 kHz channel) every 6 s, and `luna-spec plot` should show it on the plot.
+9. `luna-spec set --subband 11`: the tone (+124 MHz from that centre) should disappear from the spectrum (≥ 70 dB down). Change back with `--subband 12`.
+9a. Oversampling: move the tone to 1539.56 MHz (subband 12 centre + 65 MHz). In subband 12 it appears outside the dashed band edges, about 2 dB down; with `--subband 13` it appears at its full level at −57.9 MHz from that centre, inside the band. With the v1.x bitstream the same tone in subband 12 showed up aliased at −57.9 MHz, only ~12 dB down.
 10. `luna-spec set --tint 0.1`: integrations should arrive every 0.1 s, with `lost 0` and `dropped 0`. Change back with `--tint 6 --save`.
 11. Move the tone to another input, for example ADC 5, then `luna-spec set --input 5`: the tone should appear again, and `luna-spec watch` should show `ADC 5`. With `--input 0` it should be gone. lunaGUI's *Spectrometer* panel and spectrum window should show the same.
 

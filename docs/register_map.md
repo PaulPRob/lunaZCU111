@@ -6,7 +6,7 @@
 | `0xA010_0000` | 4 KB   | `trigger_capture` registers   | clk_1x 245.76 MHz | UIO, IRQ SPI 89        |
 | `0xA011_0000` | 64 KB  | AXI DMA (S2MM only, simple mode) | pl_clk0     | UIO, IRQ SPI 90         |
 | `0xA012_0000` | 64 KB  | AXI GPIO: MMCM reset/lock     | pl_clk0        | UIO                     |
-| `0xA014_0000` | 128 KB | `spectrometer` registers + spectrum banks | clk_spec 122.88 MHz | UIO, IRQ SPI 92 |
+| `0xA014_0000` | 128 KB | `spectrometer` registers + spectrum banks | clk_spec 145.636 MHz | UIO, IRQ SPI 92 |
 | `0x7000_0000` | 16 MB  | DMA target (reserved DDR)     | –              | UIO memory map          |
 
 > **Warning:** The trigger core and the spectrometer are clocked by the MMCM, which runs from the LMK04208 PL reference clock. That clock exists only after the RF clocks have been programmed. Reading or writing `0xA010_0000` or `0xA014_0000` before the MMCM has locked (GPIO2 bit 0 = 1) hangs the AXI bus. The spectrometer exists only in bitstreams whose trigger-core VERSION major is 2 or more.
@@ -78,19 +78,20 @@ All registers are 32 bit. RO = read only, RW = read/write, WO = write only, W1P 
 Integrating spectrometer on one ADC channel (`hw/hdl/spectrometer_top.vhd`):
 
 - **Input select:** the INPUT register picks one of the 8 ADC channels (default 0), after the trigger core's gearbox. It's a pipelined 8:1 mux at 245.76 MHz (spectrometer v1.1).
-- **Coarse filter bank (`pfb32x16t`):** splits the 3.93216 GS/s real signal into 17 coarse channels ("subbands") of 122.88 MHz, each sampled at 122.88 MS/s complex. Subband k is centred on k × 122.88 MHz. Subbands 0 (DC) and 16 (Nyquist) are real.
-- **Fine filter bank (`dfb4096x1c`):** the subband selected by SUBBAND goes to this 4096-channel filter bank, with 30 kHz channels. A spectrum takes 4096 / 122.88 MHz = 33.33 µs.
-- **Integration:** the power in each channel is accumulated (64 bit) over ACC_LEN + 1 spectra. The default is 180000 spectra = 6.000 s.
+- **Gearbox and clock crossing:** 16 samples per 245.76 MHz cycle are regrouped into words of 27 samples (16 words every 27 cycles) and cross to `clk_spec` = fs/27 = 145.636 MHz through an asynchronous FIFO, which is read every cycle once it is half full. An underflow (not expected: the rates are equal) sets STATUS bit 11 and restarts the integration.
+- **Coarse filter bank (`ospfb`, spectrometer v2.0):** 32-branch real polyphase filter bank, oversampled 32/27, 512-tap equiripple prototype. The subbands are 122.88 MHz apart, and subband k is centred on k × 122.88 MHz. Each is sampled at fs/27 = 145.636 MS/s complex: flat (±0.02 dB) to ±58 MHz, −0.5 dB at the ±61.44 MHz subband edges, and aliasing into ±61.44 MHz ≤ −72 dB. Only the subband selected by SUBBAND is computed. Subbands 0 (DC) and 16 (Nyquist) are real. v1.x used the critically sampled CSIRO `pfb32x16t` (122.88 MS/s per subband, −6 dB at the subband edges, so the fine channels near the edges were aliased).
+- **Fine filter bank (`dfb4096x1c`):** 4096 channels of fs/27/4096 = 35.556 kHz, spanning 145.636 MHz. The central 3456 channels (±61.44 MHz) are the subband's own band; the rest overlap the neighbouring subbands. A spectrum takes 4096 / 145.636 MHz = 28.125 µs.
+- **Integration:** the power in each channel is accumulated (64 bit) over ACC_LEN + 1 spectra. The default is 213333 spectra = 6.000 s.
 - **Storage:** each integration is written to one of two banks. The interrupt is high while a full bank is waiting. When both banks are full, further integrations are counted in LOST_COUNT.
 
 | Offset | Name | Access | Description |
 |--------|------|--------|-------------|
 | 0x000 | ID | RO | `0x4C535043` ("LSPC") |
-| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of banks (2). v1.1 adds INPUT |
+| 0x004 | VERSION | RO | [31:16] major, [15:8] minor, [7:0] number of banks (2). v1.1 adds INPUT; v2.0: oversampled coarse filter bank, PFB_CFG |
 | 0x008 | CTRL | RW/W1P | bit0 **ENABLE** (level; 0→1 restarts the integration), bit8 **IRQ_EN** (level); pulses: bit1 RESTART, bit4 CNT_CLEAR. Always write the level bits back with any pulse. |
-| 0x00C | STATUS | RO | [1:0] banks full, bit4 head bank, bit8 enabled, bit9 running (fine filter bank fed), bit10 writing a bank |
+| 0x00C | STATUS | RO | [1:0] banks full, bit4 head bank, bit8 enabled, bit9 running (fine filter bank fed), bit10 writing a bank, bit11 input FIFO underflow seen (v2.0; cleared by CNT_CLEAR) |
 | 0x010 | SUBBAND | RW | coarse channel 0..16 for the fine filter bank (default 12 = 1474.56 MHz). A write restarts the integration |
-| 0x014 | ACC_LEN | RW | spectra per integration − 1 (default 179999 = 6.000 s). A write restarts the integration |
+| 0x014 | ACC_LEN | RW | spectra per integration − 1 (default 213332 = 6.000 s at 28.125 µs per spectrum). A write restarts the integration |
 | 0x018 | RELEASE | WO | bit0: free the oldest full bank |
 | 0x01C | SPEC_COUNT | RO | integrations stored (= next sequence number) |
 | 0x020 | LOST_COUNT | RO | integrations lost because both banks were full |
@@ -101,16 +102,18 @@ Integrating spectrometer on one ADC channel (`hw/hdl/spectrometer_top.vhd`):
 | 0x034 | HEAD_FLAGS | RO | oldest full bank: bit0 first integration after a restart, [12:8] subband, [18:16] input ADC channel |
 | 0x038 | HEAD_ACCLEN | RO | oldest full bank: ACC_LEN it was integrated with |
 | 0x03C / 0x040 | HEAD_TS_LO / HI | RO | oldest full bank: ADC sample counter (trigger-core time base) when the integration ended |
+| 0x044 | PFB_CFG | RO | v2.0+: coarse filter bank [7:0] branches M = 32, [15:8] decimation D = 27, [23:16] taps per branch = 16. Fine channel = fs/D/4096, spectrum = 4096·D/fs |
 | 0x10000 + 0x8000·b + 8·k | BANK[b][k] | RO | bank b, fine channel k: accumulated power [31:0] at +0, [63:32] at +4 |
 
 **Restarts:**
 - **What causes one:** ENABLE 0→1, RESTART, or a write to INPUT, SUBBAND or ACC_LEN. The fine filter bank is resynchronised and its accumulator restarts from zero. An integration that was being written is discarded.
-- **Settling after a restart:** the fine filter bank re-synchronises its accumulator about 5 spectra (170 µs) after a restart, when the FFT output restarts. Until then it keeps producing integrations on its old schedule, which may be empty, mixed or cut short. The wrapper ignores every output that begins within 6 spectra of the (re)start, and stores an integration only if all 4096 channels arrived. The first integration stored after a restart therefore contains only data from after the change; it is flagged in HEAD_FLAGS for information.
-- **Delay before the first integration:** about 6 spectra (0.2 ms) plus the integration time.
+- **Settling after a restart:** the fine filter bank re-synchronises its accumulator about 5 spectra (140 µs) after a restart, when the FFT output restarts. Until then it keeps producing integrations on its old schedule, which may be empty, mixed or cut short. The wrapper ignores every output that begins within 6 spectra of the (re)start, and stores an integration only if all 4096 channels arrived. The first integration stored after a restart therefore contains only data from after the change; it is flagged in HEAD_FLAGS for information.
+- **Delay before the first integration:** about 6 spectra (0.17 ms) plus the integration time.
 
 **Fine channel order:**
-- Channels are in FFT order. Channel k is at the subband centre + k × 30 kHz for k < 2048, and at the centre + (k − 4096) × 30 kHz for k ≥ 2048.
-- `tb_spec` checks this with tones at +25 and −100 channels.
+- Channels are in FFT order. Channel k is at the subband centre + k × 35.556 kHz for k < 2048, and at the centre + (k − 4096) × 35.556 kHz for k ≥ 2048 (30 kHz with spectrometer v1.x).
+- Channels −1728 … 1727 (|offset| < 61.44 MHz) are the subband's own band. Channels further out (up to ±72.8 MHz) duplicate the edges of the neighbouring subbands, with the prototype filter's roll-off (−3 dB at 66.5 MHz).
+- `tb_spec` checks this with tones at +25 and −100 channels, a tone at +65 MHz (channel 1828, outside the old critically sampled band), and a tone at +90 MHz that must not alias into channel 2531 (−55.6 MHz).
 
 ### Spectrum readout sequence (what `lunaserver` does)
 

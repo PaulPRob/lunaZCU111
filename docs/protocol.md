@@ -38,8 +38,8 @@ The trigger sample is `samples[ch][trig_offset]`, where `trig_offset = L/2 + (tr
 ## Spectrum port (5002)
 
 The spectrometer works on one ADC channel, chosen with `SET SPEC_INPUT` (default 0):
-- **Coarse channels:** the signal is split into 17 coarse channels ("subbands") of 122.88 MHz. Subband k is centred on k × 122.88 MHz.
-- **Fine channels:** the selected subband goes through a 4096-channel filter bank, with 30 kHz channels.
+- **Coarse channels:** the signal is split into 17 coarse channels ("subbands"), 122.88 MHz apart. Subband k is centred on k × 122.88 MHz. The coarse filter bank is oversampled 32/27: the selected subband is sampled at fs/27 = 145.636 MHz, so its own ±61.44 MHz band is free of aliasing (≤ −72 dB).
+- **Fine channels:** the selected subband goes through a 4096-channel filter bank, with 35.556 kHz channels spanning 145.636 MHz. The central 3456 channels (±61.44 MHz) are the subband's own band; the outer channels overlap the neighbouring subbands.
 - **Integration:** the power in each channel is accumulated over the integration time, 6.000 s by default.
 
 Each integration is sent as one frame:
@@ -47,16 +47,20 @@ Each integration is sent as one frame:
 ```
 struct luna_spec_hdr  (64 bytes)
   0  char[4]  magic        "LSPC"
-  4  u16      version      2 (1 = servers before SPEC_INPUT: byte 59 is then 0)
+  4  u16      version      3 (2 = before the oversampled filter bank: flags[15:8]
+                           is 0; 1 = before SPEC_INPUT: byte 59 is also 0)
   6  u16      hdr_bytes    64
   8  u32      frame_bytes  64 + 8 * 4096
- 12  u32      flags        bit0 = simulated data, bit1 = first integration after a restart
+ 12  u32      flags        bit0 = simulated data, bit1 = first integration after a restart,
+                           [15:8] = coarse decimation D: 27 (oversampled 32/27);
+                           0 or 32 = critically sampled (spectrometer v1.x)
  16  u64      host_time_ns CLOCK_REALTIME when the spectrum was read out
  24  u64      end_sample   ADC sample counter when the integration ended (same time base
                            as trig_sample of the events)
  32  f64      sample_rate  3.93216e9
  40  u32      seq          integration sequence number (FPGA)
- 44  u32      n_spectra    spectra accumulated (integration time = n_spectra * 33.33 us)
+ 44  u32      n_spectra    spectra accumulated (integration time = n_spectra * 4096 * D / fs
+                           = n_spectra * 28.125 us)
  48  u32      dropped      frames dropped for this client before this frame
  52  u32      lost         integrations lost in the FPGA (both banks full) so far
  56  u16      n_channels   4096
@@ -66,9 +70,10 @@ struct luna_spec_hdr  (64 bytes)
 u64 power[4096]            accumulated power per fine channel, FFT order
 ```
 
-- **Channel frequencies:** channel k is at `subband × 122.88 MHz + k × 30 kHz` for k < 2048, and at `subband × 122.88 MHz + (k − 4096) × 30 kHz` for k ≥ 2048. In numpy this is `np.fft.fftfreq(4096) * 122.88e6`, and `np.fft.fftshift` puts the channels in frequency order.
+- **Channel frequencies:** with df = fs / D / 4096 (35.556 kHz for D = 27), channel k is at `subband × 122.88 MHz + k × df` for k < 2048, and at `subband × 122.88 MHz + (k − 4096) × df` for k ≥ 2048. In numpy this is `np.fft.fftfreq(4096) * fs / D`, and `np.fft.fftshift` puts the channels in frequency order. (Older frames, version ≤ 2 or D = 0: D = 32, df = 30 kHz.)
+- **Own band:** channels with −61.44 MHz ≤ offset < +61.44 MHz (k = −1728 … 1727, 3456 channels) belong to the subband. The rest overlap the neighbouring subbands and fall off with the coarse filter (−0.5 dB at ±61.44 MHz, −3 dB at ±66.5 MHz). `Spectrum.in_band()` in `lunaclient` gives the mask.
 - **Mean power:** `power / n_spectra` is the mean power per spectrum, in arbitrary units.
-- **Restarts:** enabling the spectrometer, `SPEC RESTART`, or changing the input, subband or integration time restarts the integration immediately. The FPGA discards everything until the filter bank has settled (about 6 spectra, 0.2 ms), so the first integration you receive after a change contains only data taken after it. That integration has flag bit 1 set, for information.
+- **Restarts:** enabling the spectrometer, `SPEC RESTART`, or changing the input, subband or integration time restarts the integration immediately. The FPGA discards everything until the filter bank has settled (about 6 spectra, 0.17 ms), so the first integration you receive after a change contains only data taken after it. That integration has flag bit 1 set, for information.
 - **Lost integrations:** the FPGA holds two finished integrations. The server reads each one in about 3 ms. Integrations shorter than about 50 ms can therefore be lost, and they are counted in `lost`.
 
 ## Control port (5001)
@@ -79,7 +84,7 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 |---------|--------|
 | `HELP` | list the commands |
 | `STATUS` | armed, mode, veto, banks full, trigger/lost counts, clients, frames sent/dropped, sample counter, SYSREF count, RFDC PLL lock and MTS latency |
-| `GET CONFIG` | thresholds, mode, N, window, mask, veto, length, armed, spec_enable, spec_input, spec_subband, spec_nspec |
+| `GET CONFIG` | thresholds, mode, N, window, mask, veto, length, armed, spec_enable, spec_input, spec_subband, spec_nspec, spec_tspec_us (length of one spectrum: 28.125, or 33.333 with a v1.x bitstream) |
 | `GET RATES` | per channel: clock cycles with a hit per second since the previous `GET RATES` |
 | `GET PEAKS` | per channel: largest \|x\| since the previous `GET PEAKS` (noise level; useful for choosing thresholds) |
 | `SET THRESH <ch\|ALL> <0-32767>` | threshold in 16-bit units (12-bit code × 16) |
@@ -92,14 +97,14 @@ Commands are case-insensitive, one per line. Each reply is one line beginning wi
 | `ARM` / `DISARM` | enable/disable triggering (events already captured are still sent) |
 | `SOFTTRIG` | force one capture now |
 | `RESYNC` | run multi-tile synchronisation again |
-| `GET SPEC` | spectrometer: present, enabled, input, subband, nspec, tint (s), centre_mhz, bandwidth_mhz, fine_khz, integrations, lost, restarts, banks_full, clients, sent, dropped |
+| `GET SPEC` | spectrometer: present, enabled, input, subband, nspec, tint (s), centre_mhz, bandwidth_mhz (the subband's own band, 122.88), span_mhz (what the 4096 channels cover, fs/D = 145.636), decim (D = 27), fine_khz (35.556), tspec_us (28.125), band_chans (channels in the own band, 3456), integrations, lost, restarts, banks_full, fifo_err, clients, sent, dropped |
 | `SPEC ON` / `SPEC OFF` | enable or disable the spectrometer (ON starts a fresh integration) |
 | `SPEC RESTART` | discard the current integration and start a new one |
 | `SET SPEC_INPUT <0-7>` | ADC channel feeding the spectrometer (default 0); restarts the integration. Needs spectrometer v1.1; older bitstreams accept only 0 |
 | `SET SPEC_SUBBAND <0-16>` | coarse channel for the fine spectrum, centre = k × 122.88 MHz (default 12 = 1474.56 MHz); restarts the integration |
-| `SET SPEC_TINT <seconds>` | integration time, rounded to whole spectra of 33.33 µs (default 6.0); restarts the integration |
-| `SET SPEC_NSPEC <n>` | integration time as a number of spectra (180000 = 6.000 s); restarts the integration |
-| `SAVE` | save the configuration, including the spectrometer settings (SD card: `/mnt/sd/lunaserver.conf`) |
+| `SET SPEC_TINT <seconds>` | integration time, rounded to whole spectra of 28.125 µs (default 6.0); restarts the integration |
+| `SET SPEC_NSPEC <n>` | integration time as a number of spectra (213333 = 6.000 s); restarts the integration |
+| `SAVE` | save the configuration, including the spectrometer settings (SD card: `/mnt/sd/lunaserver.conf`). The integration time is saved in seconds (`spec_tint`), so it is kept when the spectrum length changes; a file from an older server (no `spec_tint`) is read as `spec_nspec` × 33.33 µs |
 
 ### Trigger definitions
 

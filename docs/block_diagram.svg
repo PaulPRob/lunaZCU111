@@ -86,7 +86,7 @@
   <text x="320" y="470" class="t">MMCM (clk_wiz)</text>
   <text x="320" y="488" class="s">122.88 (AL16/AL15) ×8 = 983.04</text>
   <text x="320" y="504" class="s">clk_2x 491.52 / clk_1x 245.76</text>
-  <text x="320" y="520" class="s">clk_spec 122.88 (spectrometer)</text>
+  <text x="320" y="520" class="s">clk_spec 145.636 (÷6.75, fs/27)</text>
   <text x="320" y="536" class="s">reset/lock via AXI GPIO</text>
   <rect x="310" y="560" width="210" height="60" class="clk" rx="6"/>
   <text x="320" y="580" class="t">pl_sysref_sync</text>
@@ -143,7 +143,7 @@
   <rect x="850" y="430" width="280" height="100" class="pl" rx="6"/>
   <text x="860" y="450" class="t">AXI SmartConnect (control)</text>
   <text x="860" y="468" class="s">HPM0 → RFDC, trigger regs, DMA, GPIO,</text>
-  <text x="860" y="484" class="s">spectrometer (clocks 100 / 245.76 / 122.88)</text>
+  <text x="860" y="484" class="s">spectrometer (clocks 100 / 245.76 / 145.64)</text>
   <text x="860" y="502" class="s">interrupts pl_ps_irq0: [0] trigger,</text>
   <text x="860" y="518" class="s">[1] DMA, [2] RFDC, [3] spectrometer</text>
 
@@ -154,7 +154,7 @@
   <rect x="1150" y="90" width="285" height="690" rx="8" fill="none" stroke="#13807f" stroke-width="1.5"/>
   <text x="1162" y="110" class="t" fill="#13807f">spectrometer_top</text>
   <text x="1162" y="128" class="s">regs + spectrum RAM 0xA014_0000 (128 KiB)</text>
-  <text x="1162" y="142" class="s">clk_spec 122.88 MHz (MMCM CLKOUT3)</text>
+  <text x="1162" y="142" class="s">clk_spec 145.636 MHz = fs/27 (CLKOUT0)</text>
 
   <rect x="1165" y="150" width="255" height="80" class="sp" rx="6"/>
   <text x="1175" y="170" class="t">Input select</text>
@@ -164,32 +164,32 @@
   <path d="M1292,230 L1292,248" class="sbus"/>
 
   <rect x="1165" y="250" width="255" height="65" class="sp" rx="6"/>
-  <text x="1175" y="270" class="t">Gearbox 2:1</text>
+  <text x="1175" y="270" class="t">Gearbox 16→27 + async FIFO</text>
   <text x="1175" y="288" class="s">16 samples @ 245.76 MHz →</text>
-  <text x="1175" y="304" class="s">32 samples @ 122.88 MHz</text>
+  <text x="1175" y="304" class="s">27 samples @ 145.636 MHz</text>
   <path d="M1292,315 L1292,333" class="sbus"/>
 
   <rect x="1165" y="335" width="255" height="95" class="sp" rx="6"/>
-  <text x="1175" y="355" class="t">pfb32x16t (CSIRO)</text>
-  <text x="1175" y="373" class="s">coarse polyphase filter bank</text>
-  <text x="1175" y="389" class="s">32 real samples/clk → 17 subbands</text>
-  <text x="1175" y="405" class="s">122.88 MHz wide, centred k × 122.88</text>
-  <text x="1175" y="421" class="s">(subbands 0 and 16 real)</text>
+  <text x="1175" y="355" class="t">ospfb (oversampled 32/27)</text>
+  <text x="1175" y="373" class="s">32-branch polyphase, 512 taps</text>
+  <text x="1175" y="389" class="s">subbands centred k × 122.88 MHz,</text>
+  <text x="1175" y="405" class="s">145.636 MS/s, flat to ±58 MHz,</text>
+  <text x="1175" y="421" class="s">aliases into ±61.44 ≤ −72 dB</text>
   <path d="M1292,430 L1292,448" class="sbus"/>
 
   <rect x="1165" y="450" width="255" height="80" class="sp" rx="6"/>
-  <text x="1175" y="470" class="t">Subband select</text>
+  <text x="1175" y="470" class="t">Subband (inside ospfb)</text>
   <text x="1175" y="488" class="s">SUBBAND reg 0..16 (default 12</text>
-  <text x="1175" y="504" class="s">= 1474.56 MHz ± 61.44 MHz)</text>
-  <text x="1175" y="520" class="s">rnd_23_18: round re/im 23 → 18 bit</text>
+  <text x="1175" y="504" class="s">= 1474.56 MHz ± 61.44 MHz); only</text>
+  <text x="1175" y="520" class="s">it is computed; 18-bit re/im</text>
   <path d="M1292,530 L1292,548" class="sbus"/>
 
   <rect x="1165" y="550" width="255" height="95" class="sp" rx="6"/>
   <text x="1175" y="570" class="t">dfb4096x1c (CSIRO)</text>
-  <text x="1175" y="588" class="s">4096-channel filter bank, 30 kHz</text>
-  <text x="1175" y="604" class="s">one spectrum per 33.33 µs</text>
+  <text x="1175" y="588" class="s">4096 × 35.556 kHz (145.64 MHz)</text>
+  <text x="1175" y="604" class="s">one spectrum per 28.125 µs</text>
   <text x="1175" y="620" class="s">|X|² accumulated over ACC_LEN + 1</text>
-  <text x="1175" y="636" class="s">spectra (default 180000 = 6.000 s)</text>
+  <text x="1175" y="636" class="s">spectra (default 213333 = 6.000 s)</text>
   <path d="M1292,645 L1292,663" class="sbus"/>
 
   <rect x="1165" y="665" width="255" height="100" class="sp" rx="6"/>

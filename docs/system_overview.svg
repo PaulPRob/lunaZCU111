@@ -37,7 +37,7 @@
 
   <rect x="0" y="0" width="2090" height="1300" fill="#ffffff"/>
   <text x="30" y="42" class="title">lunaZCU111 — 8-channel 3.93 GS/s transient trigger &amp; capture system with integrating spectrometer</text>
-  <text x="30" y="66" class="sub">Xilinx ZCU111 (XCZU28DR RFSoC) · every sample of 8 RF inputs tested in real time · triggered 8-channel snapshots and 30 kHz-resolution spectra of any one input streamed over Ethernet</text>
+  <text x="30" y="66" class="sub">Xilinx ZCU111 (XCZU28DR RFSoC) · every sample of 8 RF inputs tested in real time · triggered 8-channel snapshots and 35.6 kHz-resolution spectra of any one input streamed over Ethernet</text>
 
   <!-- ===================== status badge ===================== -->
   <rect x="1680" y="84" width="390" height="62" rx="10" fill="#e3f2e4" stroke="#2e7d32" stroke-width="2"/>
@@ -140,38 +140,38 @@
   <rect x="520" y="545" width="270" height="72" rx="8" class="ck"/>
   <text x="532" y="567" class="bt">MMCM clocking (from 122.88)</text>
   <text x="532" y="587" class="tx">491.52 / 245.76 MHz: trigger</text>
-  <text x="532" y="605" class="tx">122.88 MHz clk_spec: spectrometer</text>
+  <text x="532" y="605" class="tx">145.636 MHz clk_spec: spectrometer</text>
   <rect x="520" y="632" width="270" height="55" rx="8" class="ck"/>
   <text x="532" y="654" class="bt">SYSREF capture</text>
   <text x="532" y="674" class="tx">aligns tiles for MTS</text>
 
   <!-- spectrometer -->
   <rect x="895" y="530" width="700" height="285" rx="10" class="spr"/>
-  <text x="910" y="553" class="reg" fill="#00796b">Integrating spectrometer — any one of the 8 ADCs, clk_spec 122.88 MHz</text>
+  <text x="910" y="553" class="reg" fill="#00796b">Integrating spectrometer — any one of the 8 ADCs, clk_spec 145.636 MHz</text>
 
   <rect x="1365" y="567" width="215" height="100" rx="8" class="sp"/>
   <text x="1377" y="589" class="bt">Input select</text>
   <text x="1377" y="610" class="tx">INPUT register: 1 of 8</text>
   <text x="1377" y="628" class="tx">(default ADC 0)</text>
-  <text x="1377" y="648" class="tx">→ 32 samples @ 122.88</text>
+  <text x="1377" y="648" class="tx">→ 27 samples @ 145.636</text>
 
   <rect x="1137" y="567" width="208" height="100" rx="8" class="sp"/>
   <text x="1149" y="589" class="bt">Coarse filter bank</text>
-  <text x="1149" y="610" class="tx">16-channel polyphase</text>
-  <text x="1149" y="628" class="tx">17 subbands × 122.88 MHz</text>
-  <text x="1149" y="648" class="tx">centred on k × 122.88</text>
+  <text x="1149" y="610" class="tx">oversampled 32/27 PFB</text>
+  <text x="1149" y="628" class="tx">subbands at k × 122.88 MHz</text>
+  <text x="1149" y="648" class="tx">aliases ≤ −72 dB in band</text>
 
   <rect x="910" y="567" width="207" height="100" rx="8" class="sp"/>
   <text x="922" y="589" class="bt">Subband select</text>
   <text x="922" y="610" class="tx">SUBBAND 0 … 16</text>
   <text x="922" y="628" class="tx">default 12 = 1474.56</text>
-  <text x="922" y="646" class="tx">± 61.44 MHz</text>
+  <text x="922" y="646" class="tx">± 61.44 MHz (145.64 MS/s)</text>
 
   <rect x="910" y="700" width="207" height="100" rx="8" class="sp"/>
   <text x="922" y="722" class="bt">Fine filter bank</text>
-  <text x="922" y="743" class="tx">4096 channels × 30 kHz</text>
-  <text x="922" y="761" class="tx">one spectrum</text>
-  <text x="922" y="779" class="tx">every 33.33 µs</text>
+  <text x="922" y="743" class="tx">4096 × 35.556 kHz</text>
+  <text x="922" y="761" class="tx">(3456 in the subband)</text>
+  <text x="922" y="779" class="tx">a spectrum per 28.125 µs</text>
 
   <rect x="1137" y="700" width="208" height="100" rx="8" class="sp"/>
   <text x="1149" y="722" class="bt">Power integration</text>
