@@ -29,7 +29,7 @@ create_project lunaZCU111 $pdir -part xczu28dr-ffvg1517-2-e -force
 set_property board_part xilinx.com:zcu111:part0:1.4 [current_project]
 set_property target_language VHDL [current_project]
 
-# CSIRO PFB/DFB System Generator cores for the spectrometer (local only)
+# CSIRO DFB System Generator core for the spectrometer (refernces/PFB)
 source $here/spec_ip.tcl
 
 # custom HDL (module references)

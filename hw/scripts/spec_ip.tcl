@@ -2,10 +2,10 @@
 # spec_ip.tcl : CSIRO System Generator core used by spectrometer_top.vhd
 #
 # Sourced (with $top = repository root) by build.tcl and hw/sim/sim_spec.tcl
-# after create_project.  The core is NOT in git: it must be present in the
-# local folder refernces/PFB (dfb4096x1c_v2_0), or in the folder named by the
-# environment variable LUNA_PFB_IP.  (The coarse filter bank is now our own
-# oversampled hw/hdl/ospfb.vhd; pfb32x16t and rnd_23_18 are no longer used.)
+# after create_project.  The core (System Generator 2018.2 export) is in git in
+# refernces/PFB/dfb4096x1c_v2_0; LUNA_PFB_IP may name another IP repository
+# folder that holds it.  (The coarse filter bank is now our own oversampled
+# hw/hdl/ospfb.vhd; pfb32x16t and rnd_23_18 are no longer used.)
 # -----------------------------------------------------------------------------
 set pfb_repo [file normalize $top/refernces/PFB]
 if {[info exists ::env(LUNA_PFB_IP)]} {
@@ -14,8 +14,8 @@ if {[info exists ::env(LUNA_PFB_IP)]} {
 foreach core {dfb4096x1c_v2_0} {
     if {![file exists $pfb_repo/$core/component.xml]} {
         puts "BUILD ERROR: $pfb_repo/$core/component.xml not found."
-        puts "  The CSIRO DFB core is kept out of git. Copy the folder"
-        puts "  refernces/PFB into this checkout (or set LUNA_PFB_IP)."
+        puts "  The CSIRO DFB core is tracked in refernces/PFB/dfb4096x1c_v2_0:"
+        puts "  check the checkout is complete (or unset/fix LUNA_PFB_IP)."
         exit 3
     }
 }

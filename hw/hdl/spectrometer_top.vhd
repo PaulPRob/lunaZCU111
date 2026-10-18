@@ -25,8 +25,8 @@
 -- expected) is counted in STATUS and restarts the integration.
 --
 -- The CSIRO System Generator core dfb4096x1c_0 is an IP-catalog instance
--- created by hw/scripts/build.tcl from the local, untracked folder
--- refernces/PFB.
+-- created by hw/scripts/build.tcl (spec_ip.tcl) from the IP repository
+-- refernces/PFB/dfb4096x1c_v2_0.
 --
 -- dfb4096x1c restarts its filter, FFT framing and accumulator on a rising
 -- edge of its 'valid' input.  ENABLE, RESTART and writes to SUBBAND/ACC_LEN

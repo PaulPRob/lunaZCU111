@@ -43,8 +43,11 @@ sw/client/spectra/
 
 # ---- vendor reference documents (download from AMD; see refernces/README) -
 refernces/*.pdf
-# CSIRO System Generator PFB/FFT cores - kept local, not for the public repo
-refernces/PFB/
+# CSIRO System Generator cores: only the fine filter bank dfb4096x1c_v2_0
+# (used by the build) is tracked; the v1.x cores pfb32x16t / rnd_* stay local
+refernces/PFB/*
+!refernces/PFB/dfb4096x1c_v2_0/
+refernces/PFB/dfb4096x1c_v2_0/*.zip
 
 # ---- misc ------------------------------------------------------------------
 # Windows endpoint-DLP alternate data streams copied into WSL

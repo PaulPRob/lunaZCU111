@@ -68,7 +68,7 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 | `hw/sim/` | xsim testbenches, Python golden models (`ospfb_model.py`: bit-exact model of the coarse filter bank), `run_sim.sh` (`spec`: spectrometer with the CSIRO DFB core) |
 | `hw/scripts/gen_ospfb_coefs.py` | designs the coarse filter bank's 512-tap prototype and writes `hw/hdl/ospfb_pkg.vhd` and `hw/sim/ospfb_coefs.json` (needs scipy: `uv run --no-project --with numpy --with scipy ...`) |
 | `hw/scripts/build_bd.tcl` | Vivado block design (PS, RFDC, MMCM, DMA, spectrometer, interconnect, IRQs) |
-| `hw/scripts/spec_ip.tcl` | creates the CSIRO DFB IP instance from `refernces/PFB` (local only, see below) |
+| `hw/scripts/spec_ip.tcl` | creates the CSIRO DFB IP instance from `refernces/PFB/dfb4096x1c_v2_0` |
 | `hw/scripts/build.tcl` | unattended build → bitstream + `hw/build/lunaZCU111.xsa` |
 | `hw/scripts/export_bd_image.tcl` | exports the Vivado BD picture (GUI mode) |
 | `hw/constraints/zcu111.xdc` | PL reference clock and PL SYSREF pins |
@@ -78,7 +78,7 @@ The Vivado block design itself is in `docs/vivado_bd.svg` / `docs/vivado_bd.pdf`
 | `sw/petalinux/` | PetaLinux 2023.2 layer (device tree, kernel config, recipe) + `setup.sh` |
 | `docs/` | block diagram, register map, network protocol |
 | `refernces/` | TICS Pro clock files (as supplied); the ZCU111 user guide and schematic PDFs are not in git, see `refernces/README.md` |
-| `refernces/PFB/` | **not in git (CSIRO IP, kept local):** System Generator cores; the build uses only `dfb4096x1c_v2_0` (`pfb32x16t_v1_6` and `rnd_23_18_v1_0` were used by spectrometer v1.x). Needed by the FPGA build and `run_sim.sh spec`. Copy the folder into a fresh clone, or set `LUNA_PFB_IP` to its path |
+| `refernces/PFB/dfb4096x1c_v2_0/` | CSIRO System Generator 2018.2 fine filter bank core (IP repository: `component.xml`, generated HDL, sub-core `.xci`/`.coe`), needed by the FPGA build and `run_sim.sh spec`. The v1.x coarse cores (`pfb32x16t_v1_6`, `rnd_23_18_v1_0`) are not used and not in git |
 
 ## Tools
 
@@ -98,7 +98,7 @@ Keep Vivado parallelism at 2–4 jobs. More jobs run out of memory on this 16 GB
 # 1. VHDL unit simulations (≈3 min), including the coarse filter bank against
 #    its bit-exact model (run_sim.sh os)
 hw/sim/run_sim.sh
-#    spectrometer with the real CSIRO DFB core (needs refernces/PFB, ~30 min)
+#    spectrometer with the real CSIRO DFB core (refernces/PFB, ~30 min)
 hw/sim/run_sim.sh spec
 
 # 2. FPGA: block design, synthesis, implementation, bitstream, XSA (about 1 h)
@@ -192,9 +192,9 @@ cd sw/client && LUNA_HOST=127.0.0.1 uv run luna-spec watch   # synthetic spectra
 - **Fine filter bank:** `dfb4096x1c`, 4096 channels of 35.556 kHz spanning 145.636 MHz, with power and accumulation over ACC_LEN + 1 spectra of 28.125 µs. The default is 213333 spectra = 6.000 s. The central 3456 channels (±61.44 MHz) are the subband's own band; the outer 640 overlap the neighbouring subbands (lunaGUI and `luna-spec plot` mark the band edges).
 - **Storage:** each integration is written to one of 2 banks of 4096 × 64 bit in UltraRAM. An interrupt (SPI 92) tells `lunaserver`, which reads the bank over AXI-Lite (about 3 ms) and sends it to every client on TCP 5002.
 - **Control:** enable/disable, input, subband and integration time are set on the control port (`SPEC ON|OFF`, `SET SPEC_INPUT`, `SET SPEC_SUBBAND`, `SET SPEC_TINT`), or from lunaGUI. Any change restarts the integration immediately. The FPGA discards the filter bank's output until it has re-synchronised (about 6 spectra), so the first integration after a change is clean; it is flagged "first after restart" for information.
-- **The CSIRO DFB core is not in this repository:**
-  - It lives in `refernces/PFB/` (gitignored), from System Generator 2018.2.
-  - `hw/scripts/spec_ip.tcl` creates it as an IP-catalog instance, and the build stops with a clear message if the folder is missing.
+- **The CSIRO DFB core is in this repository:**
+  - It is in `refernces/PFB/dfb4096x1c_v2_0/`, exported from System Generator 2018.2 as an IP-catalog core, so a fresh clone has everything needed to rebuild the design.
+  - `hw/scripts/spec_ip.tcl` creates it as an IP-catalog instance (`LUNA_PFB_IP` can point at another copy), and the build stops with a clear message if it is missing.
 - **Software:** the server reads PFB_CFG (decimation 27) and reports `decim`, `span_mhz`, `fine_khz`, `tspec_us` and `band_chans` in `GET SPEC`; spectrum frames (version 3) carry the decimation in flags[15:8], so `lunaclient` gets the channel width right for both v1 and v2 bitstreams. The integration time is saved in seconds, so a saved 6 s stays 6 s.
 
 ## Bring-up checklist
