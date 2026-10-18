@@ -4,19 +4,29 @@
 -- Used as a Vivado IP-integrator module reference.
 --
 --   din_1x (8 channels x 16 samples @ 245.76 MHz) -> input select (INPUT
---   register, pipelined 8:1 mux) -> 2:1 gearbox -> 32 samples @ 122.88 MHz
---   -> pfb32x16t  : 32-input real polyphase filter bank, 17 coarse channels
---                   (0 and 16 real), each 122.88 MHz wide, centred on
---                   k * 122.88 MHz, sampled at 122.88 MS/s complex
---   -> subband mux (SUBBAND register, 0..16) -> rnd_23_18 (re, im)
---   -> dfb4096x1c : 4096-channel filter bank (30 kHz channels) with power
---                   and vector accumulation over ACC_LEN+1 spectra
+--   register, pipelined 8:1 mux) -> gearbox_16_27 -> words of 27 samples,
+--   16 every 27 clk_1x cycles -> async FIFO -> clk_spec (145.636 MHz = fs/27)
+--   -> ospfb      : 32-branch real polyphase filter bank oversampled 32/27
+--                   (512 taps); computes the coarse channel selected by
+--                   SUBBAND (0..16): 122.88 MHz spacing, centred on
+--                   k * 122.88 MHz, sampled at fs/27 = 145.636 MS/s complex,
+--                   flat to +-58 MHz, aliases into +-61.44 MHz <= -72 dB
+--   -> dfb4096x1c : 4096-channel filter bank (35.556 kHz channels, 145.636
+--                   MHz span; the central 3456 channels are the subband's
+--                   own +-61.44 MHz) with power and vector accumulation over
+--                   ACC_LEN+1 spectra of 28.125 us
 --   -> spectrum memory: 2 banks x 4096 x 64 bit (UltraRAM), read by the PS
 --      through the AXI-Lite window; irq while a full bank is waiting
 --
--- The CSIRO System Generator cores (pfb32x16t_0, rnd_23_18_0, dfb4096x1c_0)
--- are IP-catalog instances created by hw/scripts/build.tcl from the local,
--- untracked folder refernces/PFB.
+-- clk_1x and clk_spec come from the same MMCM (CLKOUT0 fractional divide
+-- 6.75) but are treated as asynchronous: only the XPM FIFO and the XPM CDC
+-- cells cross between them.  Their rates match exactly on average, so once
+-- the FIFO is half full it is read every clk_spec cycle; an underflow (never
+-- expected) is counted in STATUS and restarts the integration.
+--
+-- The CSIRO System Generator core dfb4096x1c_0 is an IP-catalog instance
+-- created by hw/scripts/build.tcl from the local, untracked folder
+-- refernces/PFB.
 --
 -- dfb4096x1c restarts its filter, FFT framing and accumulator on a rising
 -- edge of its 'valid' input.  ENABLE, RESTART and writes to SUBBAND/ACC_LEN
@@ -32,6 +42,8 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+library xpm;
+use xpm.vcomponents.all;
 -- pragma translate_off
 use std.textio.all;
 use ieee.std_logic_textio.all;
@@ -40,12 +52,12 @@ use ieee.std_logic_textio.all;
 entity spectrometer_top is
   generic (
     SIM_DUMP   : boolean := false;  -- simulation only: log memory writes
-    SIM_NO_PFB : boolean := false   -- simulation only: replace the (slow)
-                                    -- PFB model by zeros
+    SIM_NO_PFB : boolean := false   -- simulation only: replace the coarse
+                                    -- filter bank by zeros
   );
   port (
     clk_1x        : in  std_logic;  -- 245.76 MHz
-    clk_spec      : in  std_logic;  -- 122.88 MHz, same MMCM, phase aligned
+    clk_spec      : in  std_logic;  -- 145.636 MHz (fs/27), asynchronous to clk_1x
     aresetn       : in  std_logic;  -- clk_spec domain, active low
 
     din_1x        : in  std_logic_vector(2047 downto 0); -- 8 ADC channels, ch k at
@@ -89,55 +101,6 @@ architecture rtl of spectrometer_top is
   attribute X_INTERFACE_INFO of irq : signal is "xilinx.com:signal:interrupt:1.0 irq INTERRUPT";
   attribute X_INTERFACE_PARAMETER of irq : signal is "SENSITIVITY LEVEL_HIGH";
 
-  component pfb32x16t_0
-    port (
-      in0  : in std_logic_vector(11 downto 0); in1  : in std_logic_vector(11 downto 0);
-      in2  : in std_logic_vector(11 downto 0); in3  : in std_logic_vector(11 downto 0);
-      in4  : in std_logic_vector(11 downto 0); in5  : in std_logic_vector(11 downto 0);
-      in6  : in std_logic_vector(11 downto 0); in7  : in std_logic_vector(11 downto 0);
-      in8  : in std_logic_vector(11 downto 0); in9  : in std_logic_vector(11 downto 0);
-      in10 : in std_logic_vector(11 downto 0); in11 : in std_logic_vector(11 downto 0);
-      in12 : in std_logic_vector(11 downto 0); in13 : in std_logic_vector(11 downto 0);
-      in14 : in std_logic_vector(11 downto 0); in15 : in std_logic_vector(11 downto 0);
-      in16 : in std_logic_vector(11 downto 0); in17 : in std_logic_vector(11 downto 0);
-      in18 : in std_logic_vector(11 downto 0); in19 : in std_logic_vector(11 downto 0);
-      in20 : in std_logic_vector(11 downto 0); in21 : in std_logic_vector(11 downto 0);
-      in22 : in std_logic_vector(11 downto 0); in23 : in std_logic_vector(11 downto 0);
-      in24 : in std_logic_vector(11 downto 0); in25 : in std_logic_vector(11 downto 0);
-      in26 : in std_logic_vector(11 downto 0); in27 : in std_logic_vector(11 downto 0);
-      in28 : in std_logic_vector(11 downto 0); in29 : in std_logic_vector(11 downto 0);
-      in30 : in std_logic_vector(11 downto 0); in31 : in std_logic_vector(11 downto 0);
-      valid_in : in std_logic_vector(0 downto 0);
-      clk      : in std_logic;
-      out0re  : out std_logic_vector(22 downto 0); out0im  : out std_logic_vector(22 downto 0);
-      out1re  : out std_logic_vector(22 downto 0); out1im  : out std_logic_vector(22 downto 0);
-      out2re  : out std_logic_vector(22 downto 0); out2im  : out std_logic_vector(22 downto 0);
-      out3re  : out std_logic_vector(22 downto 0); out3im  : out std_logic_vector(22 downto 0);
-      out4re  : out std_logic_vector(22 downto 0); out4im  : out std_logic_vector(22 downto 0);
-      out5re  : out std_logic_vector(22 downto 0); out5im  : out std_logic_vector(22 downto 0);
-      out6re  : out std_logic_vector(22 downto 0); out6im  : out std_logic_vector(22 downto 0);
-      out7re  : out std_logic_vector(22 downto 0); out7im  : out std_logic_vector(22 downto 0);
-      out8re  : out std_logic_vector(22 downto 0); out8im  : out std_logic_vector(22 downto 0);
-      out9re  : out std_logic_vector(22 downto 0); out9im  : out std_logic_vector(22 downto 0);
-      out10re : out std_logic_vector(22 downto 0); out10im : out std_logic_vector(22 downto 0);
-      out11re : out std_logic_vector(22 downto 0); out11im : out std_logic_vector(22 downto 0);
-      out12re : out std_logic_vector(22 downto 0); out12im : out std_logic_vector(22 downto 0);
-      out13re : out std_logic_vector(22 downto 0); out13im : out std_logic_vector(22 downto 0);
-      out14re : out std_logic_vector(22 downto 0); out14im : out std_logic_vector(22 downto 0);
-      out15re : out std_logic_vector(22 downto 0); out15im : out std_logic_vector(22 downto 0);
-      out16re : out std_logic_vector(22 downto 0); out16im : out std_logic_vector(22 downto 0);
-      valid_out : out std_logic_vector(0 downto 0)
-    );
-  end component;
-
-  component rnd_23_18_0
-    port (
-      in23  : in  std_logic_vector(22 downto 0);
-      clk   : in  std_logic;
-      out18 : out std_logic_vector(17 downto 0)
-    );
-  end component;
-
   component dfb4096x1c_0
     port (
       acc_len       : in  std_logic_vector(31 downto 0);
@@ -151,40 +114,45 @@ architecture rtl of spectrometer_top is
     );
   end component;
 
-  constant RND_LAT     : integer := 2;      -- rnd_23_18 latency
   constant RESTART_LEN : integer := 32;     -- clk_spec cycles 'valid' is held low
   constant NFINE       : integer := 4096;   -- fine channels = cycles per spectrum
   constant SETTLE_SPECTRA : integer := 6;   -- ignore outputs this long after a start
   constant SETTLE_CYC  : integer := SETTLE_SPECTRA * NFINE;
 
-  type s12_arr_t is array (0 to 31) of std_logic_vector(11 downto 0);
-  type s23_arr_t is array (0 to 16) of std_logic_vector(22 downto 0);
+  constant GB_W        : integer := 27 * 12;  -- gearbox word: 27 samples
+  constant FIFO_W      : integer := GB_W + 64;  -- + sample index
+  constant FIFO_START  : integer := 16;     -- words in the FIFO before reading
 
   signal rst : std_logic := '1';
 
   -- input select (clk_1x)
   type w256_arr_t is array (natural range <>) of std_logic_vector(255 downto 0);
-  signal sel_a, sel_b : unsigned(2 downto 0) := (others => '0');
+  signal input_1x : std_logic_vector(2 downto 0);
+  signal sel_b    : unsigned(2 downto 0) := (others => '0');
   signal s0       : w256_arr_t(0 to 7);
   signal s1       : w256_arr_t(0 to 1);
   signal s2       : std_logic_vector(255 downto 0) := (others => '0');
+  type u64_arr_t is array (natural range <>) of unsigned(63 downto 0);
+  signal ts_d     : u64_arr_t(0 to 2) := (others => (others => '0'));
 
-  -- gearbox
-  signal g_prev   : std_logic_vector(255 downto 0) := (others => '0');
-  signal g_pair   : std_logic_vector(511 downto 0) := (others => '0');
-  signal g_ph     : std_logic := '0';
-  signal ts_r     : std_logic_vector(63 downto 0) := (others => '0');
-  signal pfb_word : std_logic_vector(511 downto 0) := (others => '0');
+  -- gearbox and FIFO (clk_1x -> clk_spec)
+  signal rst_1x   : std_logic;
+  signal gb_word  : std_logic_vector(GB_W-1 downto 0);
+  signal gb_ts    : unsigned(63 downto 0);
+  signal gb_valid : std_logic;
+  signal f_din    : std_logic_vector(FIFO_W-1 downto 0);
+  signal f_dout   : std_logic_vector(FIFO_W-1 downto 0);
+  signal f_wr_en, f_full, f_wr_busy : std_logic;
+  signal f_rd_en, f_dvalid, f_rd_busy : std_logic;
+  signal f_count  : std_logic_vector(5 downto 0);
+  signal f_run    : std_logic := '0';
+  signal os_in_valid : std_logic := '0';
+  signal fifo_err : std_logic := '0';
   signal ts_s     : unsigned(63 downto 0) := (others => '0');
 
   -- coarse filter bank
-  signal pin      : s12_arr_t;
-  signal pfb_vin  : std_logic_vector(0 downto 0) := "0";
-  signal pfb_vout : std_logic_vector(0 downto 0);
-  signal ore, oim : s23_arr_t;
-  signal sel_re, sel_im : std_logic_vector(22 downto 0) := (others => '0');
-  signal fin_re, fin_im : std_logic_vector(17 downto 0);
-  signal vdly     : std_logic_vector(RND_LAT downto 0) := (others => '0');
+  signal os_re, os_im : std_logic_vector(17 downto 0);
+  signal os_valid : std_logic;
 
   -- fine filter bank
   signal dfb_valid : std_logic := '0';
@@ -245,14 +213,19 @@ begin
   -- input select: the 8 channel words come from all four ADC tiles, i.e. from
   -- across the die, so the 8:1 mux is pipelined: one register per channel
   -- (s0, placed near its source), 4:1 (s1), 2:1 (s2).  INPUT comes from the
-  -- clk_spec register block (same MMCM, static; a write restarts the
-  -- integration, so the few cycles of switching are discarded).
+  -- clk_spec register block through a CDC synchroniser (static; a write
+  -- restarts the integration, so the cycles of switching are discarded).
   -----------------------------------------------------------------------------
+  u_input_cdc : xpm_cdc_array_single
+    generic map (DEST_SYNC_FF => 3, INIT_SYNC_FF => 0, SIM_ASSERT_CHK => 0,
+                 SRC_INPUT_REG => 1, WIDTH => 3)
+    port map (src_clk => clk_spec, src_in => std_logic_vector(cfg_input),
+              dest_clk => clk_1x, dest_out => input_1x);
+
   process (clk_1x)
   begin
     if rising_edge(clk_1x) then
-      sel_a <= cfg_input;
-      sel_b <= sel_a;
+      sel_b <= unsigned(input_1x);
       for k in 0 to 7 loop
         s0(k) <= din_1x(256*k+255 downto 256*k);
       end loop;
@@ -263,108 +236,146 @@ begin
       else
         s2 <= s1(1);
       end if;
+      -- sample index of s2 lane 0
+      ts_d <= unsigned(ts_1x) & ts_d(0 to 1);
     end if;
   end process;
 
   -----------------------------------------------------------------------------
-  -- 16 samples @ 245.76 MHz -> 32 samples @ 122.88 MHz
-  -- clk_1x and clk_spec come from the same MMCM (phase aligned, 2:1).  g_pair
-  -- changes every second clk_1x cycle and is stable for two clk_1x cycles, so
-  -- each clk_spec edge captures every pair exactly once whatever the phase
-  -- of g_ph.  The older word goes to lanes 0..15.
+  -- 16 samples @ 245.76 MHz -> 27 samples, 16 words per 27 cycles -> FIFO
   -----------------------------------------------------------------------------
-  process (clk_1x)
-  begin
-    if rising_edge(clk_1x) then
-      g_prev <= s2;
-      g_ph   <= not g_ph;
-      if g_ph = '1' then
-        g_pair <= s2 & g_prev;
-      end if;
-      ts_r <= ts_1x;
-    end if;
-  end process;
+  u_rst_cdc : xpm_cdc_sync_rst
+    generic map (DEST_SYNC_FF => 4, INIT => 1, INIT_SYNC_FF => 0, SIM_ASSERT_CHK => 0)
+    port map (src_rst => rst, dest_clk => clk_1x, dest_rst => rst_1x);
 
-  process (clk_spec)
-  begin
-    if rising_edge(clk_spec) then
-      pfb_word <= g_pair;
-      ts_s     <= unsigned(ts_r);
-      pfb_vin(0) <= not rst;
-    end if;
-  end process;
-
-  -- 12-bit ADC code = bits 15..4 of each 16-bit lane
-  g_pin : for i in 0 to 31 generate
-    pin(i) <= pfb_word(16*i+15 downto 16*i+4);
-  end generate;
-
-  g_nopfb : if SIM_NO_PFB generate
-    ore      <= (others => (others => '0'));
-    oim      <= (others => (others => '0'));
-    pfb_vout <= pfb_vin;
-  end generate;
-
-  g_pfb : if not SIM_NO_PFB generate
-  u_pfb : pfb32x16t_0
+  u_gearbox : entity work.gearbox_16_27
     port map (
-      in0  => pin(0),  in1  => pin(1),  in2  => pin(2),  in3  => pin(3),
-      in4  => pin(4),  in5  => pin(5),  in6  => pin(6),  in7  => pin(7),
-      in8  => pin(8),  in9  => pin(9),  in10 => pin(10), in11 => pin(11),
-      in12 => pin(12), in13 => pin(13), in14 => pin(14), in15 => pin(15),
-      in16 => pin(16), in17 => pin(17), in18 => pin(18), in19 => pin(19),
-      in20 => pin(20), in21 => pin(21), in22 => pin(22), in23 => pin(23),
-      in24 => pin(24), in25 => pin(25), in26 => pin(26), in27 => pin(27),
-      in28 => pin(28), in29 => pin(29), in30 => pin(30), in31 => pin(31),
-      valid_in => pfb_vin,
-      clk      => clk_spec,
-      out0re  => ore(0),  out0im  => oim(0),
-      out1re  => ore(1),  out1im  => oim(1),
-      out2re  => ore(2),  out2im  => oim(2),
-      out3re  => ore(3),  out3im  => oim(3),
-      out4re  => ore(4),  out4im  => oim(4),
-      out5re  => ore(5),  out5im  => oim(5),
-      out6re  => ore(6),  out6im  => oim(6),
-      out7re  => ore(7),  out7im  => oim(7),
-      out8re  => ore(8),  out8im  => oim(8),
-      out9re  => ore(9),  out9im  => oim(9),
-      out10re => ore(10), out10im => oim(10),
-      out11re => ore(11), out11im => oim(11),
-      out12re => ore(12), out12im => oim(12),
-      out13re => ore(13), out13im => oim(13),
-      out14re => ore(14), out14im => oim(14),
-      out15re => ore(15), out15im => oim(15),
-      out16re => ore(16), out16im => oim(16),
-      valid_out => pfb_vout
+      clk        => clk_1x,
+      rst        => rst_1x,
+      din        => s2,
+      ts_in      => ts_d(2),
+      dout       => gb_word,
+      ts_out     => gb_ts,
+      dout_valid => gb_valid
     );
-  end generate;
 
-  -----------------------------------------------------------------------------
-  -- subband select: channels 0 (DC) and 16 (Nyquist) are real
-  -----------------------------------------------------------------------------
+  f_din   <= std_logic_vector(gb_ts) & gb_word;
+  f_wr_en <= gb_valid and not f_full and not f_wr_busy;
+
+  u_fifo : xpm_fifo_async
+    generic map (
+      CASCADE_HEIGHT      => 0,
+      CDC_SYNC_STAGES     => 2,
+      DOUT_RESET_VALUE    => "0",
+      ECC_MODE            => "no_ecc",
+      FIFO_MEMORY_TYPE    => "distributed",
+      FIFO_READ_LATENCY   => 0,
+      FIFO_WRITE_DEPTH    => 32,
+      FULL_RESET_VALUE    => 0,
+      PROG_EMPTY_THRESH   => 10,
+      PROG_FULL_THRESH    => 20,
+      RD_DATA_COUNT_WIDTH => 6,
+      READ_DATA_WIDTH     => FIFO_W,
+      READ_MODE           => "fwft",
+      RELATED_CLOCKS      => 0,
+      SIM_ASSERT_CHK      => 0,
+      USE_ADV_FEATURES    => "1400",     -- rd_data_count, data_valid
+      WAKEUP_TIME         => 0,
+      WRITE_DATA_WIDTH    => FIFO_W,
+      WR_DATA_COUNT_WIDTH => 6
+    )
+    port map (
+      sleep         => '0',
+      rst           => rst_1x,
+      wr_clk        => clk_1x,
+      wr_en         => f_wr_en,
+      din           => f_din,
+      full          => f_full,
+      prog_full     => open,
+      wr_data_count => open,
+      overflow      => open,
+      wr_rst_busy   => f_wr_busy,
+      almost_full   => open,
+      wr_ack        => open,
+      rd_clk        => clk_spec,
+      rd_en         => f_rd_en,
+      dout          => f_dout,
+      empty         => open,
+      prog_empty    => open,
+      rd_data_count => f_count,
+      underflow     => open,
+      rd_rst_busy   => f_rd_busy,
+      almost_empty  => open,
+      data_valid    => f_dvalid,
+      injectsbiterr => '0',
+      injectdbiterr => '0',
+      sbiterr       => open,
+      dbiterr       => open
+    );
+
+  -- read side: wait until FIFO_START words are in, then read one word every
+  -- clk_spec cycle.  Write and read rates are equal, so the level stays near
+  -- FIFO_START; if the FIFO ever runs dry the filter bank input goes invalid
+  -- for a cycle, which restarts the fine filter bank (sticky STATUS bit 11).
+  f_rd_en <= f_run;
+
   process (clk_spec)
-    variable k : integer range 0 to 31;
   begin
     if rising_edge(clk_spec) then
-      k := to_integer(cfg_subband);
-      if k = 0 or k >= 16 then
-        if k = 0 then
-          sel_re <= ore(0);
-        else
-          sel_re <= ore(16);
+      os_in_valid <= '0';
+      if f_rd_busy = '1' then
+        f_run <= '0';
+      elsif f_run = '0' then
+        if unsigned(f_count) >= FIFO_START then
+          f_run <= '1';
         end if;
-        sel_im <= (others => '0');
+      elsif f_dvalid = '0' then
+        f_run    <= '0';
+        fifo_err <= '1';
       else
-        sel_re <= ore(k);
-        sel_im <= oim(k);
+        os_in_valid <= '1';
       end if;
-      -- valid follows the data through the mux (1) and the rounding (RND_LAT)
-      vdly <= vdly(RND_LAT-1 downto 0) & pfb_vout(0);
+      if f_run = '1' and f_dvalid = '1' then
+        ts_s <= unsigned(f_dout(FIFO_W-1 downto GB_W));
+      end if;
+      if p_cnt_clear = '1' or rst = '1' then
+        fifo_err <= '0';
+      end if;
     end if;
   end process;
 
-  u_rnd_re : rnd_23_18_0 port map (in23 => sel_re, clk => clk_spec, out18 => fin_re);
-  u_rnd_im : rnd_23_18_0 port map (in23 => sel_im, clk => clk_spec, out18 => fin_im);
+  -----------------------------------------------------------------------------
+  -- coarse filter bank (one word per cycle, registered data)
+  -----------------------------------------------------------------------------
+  b_os : block
+    signal os_word : std_logic_vector(GB_W-1 downto 0) := (others => '0');
+  begin
+    process (clk_spec)
+    begin
+      if rising_edge(clk_spec) then
+        os_word <= f_dout(GB_W-1 downto 0);
+      end if;
+    end process;
+
+    g_nopfb : if SIM_NO_PFB generate
+      os_re    <= (others => '0');
+      os_im    <= (others => '0');
+      os_valid <= os_in_valid;
+    end generate;
+
+    g_pfb : if not SIM_NO_PFB generate
+      u_ospfb : entity work.ospfb
+        port map (
+          clk        => clk_spec,
+          subband    => cfg_subband,
+          din        => os_word,
+          din_valid  => os_in_valid,
+          dout_re    => os_re,
+          dout_im    => os_im,
+          dout_valid => os_valid
+        );
+    end generate;
+  end block;
 
   -----------------------------------------------------------------------------
   -- enable / restart: 'valid' low for RESTART_LEN cycles, then a rising edge
@@ -386,7 +397,7 @@ begin
       end if;
 
       if restart_cnt = 0 and cfg_enable = '1' then
-        dfb_valid <= vdly(RND_LAT);
+        dfb_valid <= os_valid;
       else
         dfb_valid <= '0';
       end if;
@@ -403,8 +414,8 @@ begin
   u_dfb : dfb4096x1c_0
     port map (
       acc_len       => std_logic_vector(cfg_acc_len),
-      in_im         => fin_im,
-      in_re         => fin_re,
+      in_im         => os_im,
+      in_re         => os_re,
       valid         => dfb_valid,
       clk           => clk_spec,
       new_acc_out   => dfb_new,
@@ -566,6 +577,7 @@ begin
       st_head       => head,
       st_running    => dfb_valid,
       st_writing    => writing,
+      st_fifo_err   => fifo_err,
       st_spec_cnt   => seq,
       st_lost_cnt   => cnt_lost,
       st_restarts   => cnt_rst,
@@ -601,7 +613,7 @@ begin
     begin
       if rising_edge(clk_spec) then
         cyc := cyc + 1;
-        if pfb_vout(0) /= pv then pv := pfb_vout(0); ev("pfb_valid_out", pv); end if;
+        if os_valid /= pv then pv := os_valid; ev("pfb_valid_out", pv); end if;
         if dfb_valid /= dv then dv := dfb_valid; ev("dfb_valid", dv); end if;
         if dfb_new /= nv then
           nv := dfb_new;
@@ -615,11 +627,11 @@ begin
         if dfb_new = '1' and unsigned(dfb_data) /= 0 then
           nz := nz + 1;
         end if;
-        if not seen_pfb and unsigned(ore(12)) /= 0 then
-          seen_pfb := true; ev("pfb_out12_nonzero", '1');
+        if not seen_pfb and unsigned(os_re) /= 0 then
+          seen_pfb := true; ev("pfb_out_nonzero", '1');
         end if;
-        if not seen_fin and unsigned(fin_re) /= 0 then
-          seen_fin := true; ev("dfb_in_nonzero", '1');
+        if not seen_fin and fifo_err = '1' then
+          seen_fin := true; ev("fifo_underflow", '1');
         end if;
       end if;
     end process;

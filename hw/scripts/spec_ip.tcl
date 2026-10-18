@@ -1,19 +1,20 @@
 # -----------------------------------------------------------------------------
-# spec_ip.tcl : CSIRO System Generator cores used by spectrometer_top.vhd
+# spec_ip.tcl : CSIRO System Generator core used by spectrometer_top.vhd
 #
 # Sourced (with $top = repository root) by build.tcl and hw/sim/sim_spec.tcl
-# after create_project.  The cores are NOT in git: they must be present in the
-# local folder refernces/PFB (pfb32x16t_v1_6, dfb4096x1c_v2_0, rnd_23_18_v1_0),
-# or in the folder named by the environment variable LUNA_PFB_IP.
+# after create_project.  The core is NOT in git: it must be present in the
+# local folder refernces/PFB (dfb4096x1c_v2_0), or in the folder named by the
+# environment variable LUNA_PFB_IP.  (The coarse filter bank is now our own
+# oversampled hw/hdl/ospfb.vhd; pfb32x16t and rnd_23_18 are no longer used.)
 # -----------------------------------------------------------------------------
 set pfb_repo [file normalize $top/refernces/PFB]
 if {[info exists ::env(LUNA_PFB_IP)]} {
     set pfb_repo [file normalize $::env(LUNA_PFB_IP)]
 }
-foreach core {pfb32x16t_v1_6 dfb4096x1c_v2_0 rnd_23_18_v1_0} {
+foreach core {dfb4096x1c_v2_0} {
     if {![file exists $pfb_repo/$core/component.xml]} {
         puts "BUILD ERROR: $pfb_repo/$core/component.xml not found."
-        puts "  The CSIRO PFB/DFB cores are kept out of git. Copy the folder"
+        puts "  The CSIRO DFB core is kept out of git. Copy the folder"
         puts "  refernces/PFB into this checkout (or set LUNA_PFB_IP)."
         exit 3
     }
@@ -22,16 +23,10 @@ foreach core {pfb32x16t_v1_6 dfb4096x1c_v2_0 rnd_23_18_v1_0} {
 set_property ip_repo_paths [list $pfb_repo] [current_project]
 update_ip_catalog -rebuild
 
-# instance names must match the components in spectrometer_top.vhd
-foreach {vlnv name} {
-    CSIRO:SysGen:pfb32x16t:1.6  pfb32x16t_0
-    CSIRO:SysGen:rnd_23_18:1.0  rnd_23_18_0
-    CSIRO:SysGen:dfb4096x1c:2.0 dfb4096x1c_0
-} {
-    create_ip -vlnv $vlnv -module_name $name
-}
-set spec_ips [get_ips {pfb32x16t_0 rnd_23_18_0 dfb4096x1c_0}]
-# the cores were packaged with System Generator 2018.2
+# instance name must match the component in spectrometer_top.vhd
+create_ip -vlnv CSIRO:SysGen:dfb4096x1c:2.0 -module_name dfb4096x1c_0
+set spec_ips [get_ips {dfb4096x1c_0}]
+# the core was packaged with System Generator 2018.2
 foreach ip $spec_ips {
     if {[get_property UPGRADE_VERSIONS $ip] ne "" || [get_property IS_LOCKED $ip]} {
         catch {upgrade_ip $ip}

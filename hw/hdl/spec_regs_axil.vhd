@@ -1,17 +1,19 @@
 -------------------------------------------------------------------------------
 -- spec_regs_axil : AXI4-Lite registers + spectrum memory window of the
---                  spectrometer (clk_spec domain, 122.88 MHz)
+--                  spectrometer (clk_spec domain, 145.636 MHz)
 --
 -- Register map (byte offsets, 32-bit registers) - see docs/register_map.md
 --   0x000 ID          RO  0x4C535043 ("LSPC")
 --   0x004 VERSION     RO  [31:16] major [15:8] minor [7:0] number of banks (2)
+--                         2.0: oversampled (32/27) coarse filter bank
 --   0x008 CTRL        RW  bit0 ENABLE, bit8 IRQ_EN (levels)
 --                         W1 pulses: bit1 RESTART, bit4 CNT_CLEAR
 --   0x00C STATUS      RO  [1:0] banks full, bit4 head bank, bit8 enabled,
---                         bit9 running (fine filter bank fed), bit10 writing
+--                         bit9 running (fine filter bank fed), bit10 writing,
+--                         bit11 input FIFO underflow seen (cleared by CNT_CLEAR)
 --   0x010 SUBBAND     RW  coarse channel 0..16 for the fine filter bank (12);
 --                         a write restarts the integration
---   0x014 ACC_LEN     RW  spectra per integration - 1 (179999 = 6.000 s);
+--   0x014 ACC_LEN     RW  spectra per integration - 1 (213332 = 6.000 s);
 --                         a write restarts the integration
 --   0x018 RELEASE     WO  bit0 : free the oldest full bank
 --   0x01C SPEC_COUNT  RO  integrations stored
@@ -26,11 +28,16 @@
 --   0x038 HEAD_ACCLEN RO  oldest full bank: ACC_LEN used
 --   0x03C HEAD_TS_LO  RO  oldest full bank: sample counter at the end of
 --   0x040 HEAD_TS_HI      the integration (trigger-core time base)
+--   0x044 PFB_CFG     RO  coarse filter bank: [7:0] branches M (32),
+--                         [15:8] decimation D (27), [23:16] taps per branch
+--                         (16); spectrum = 4096 * D / fs = 28.125 us
 --   0x10000 + b*0x8000 + 8*k (+4) : bank b, channel k, power [31:0] ([63:32])
 -------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+
+use work.ospfb_pkg.all;
 
 entity spec_regs_axil is
   port (
@@ -69,6 +76,7 @@ entity spec_regs_axil is
     st_head       : in  std_logic;
     st_running    : in  std_logic;
     st_writing    : in  std_logic;
+    st_fifo_err   : in  std_logic;
     st_spec_cnt   : in  unsigned(31 downto 0);
     st_lost_cnt   : in  unsigned(31 downto 0);
     st_restarts   : in  unsigned(31 downto 0);
@@ -84,7 +92,10 @@ end entity spec_regs_axil;
 
 architecture rtl of spec_regs_axil is
 
-  constant ACC_LEN_DEFAULT : integer := 179999;   -- 180000 x 33.33 us = 6.000 s
+  constant ACC_LEN_DEFAULT : integer := 213332;   -- 213333 x 28.125 us = 6.000 s
+  constant PFB_CFG : std_logic_vector(31 downto 0) :=
+    x"00" & std_logic_vector(to_unsigned(OS_T, 8)) &
+    std_logic_vector(to_unsigned(OS_D, 8)) & std_logic_vector(to_unsigned(OS_M, 8));
 
   signal r_enable, r_irq_en : std_logic := '0';
   signal r_subband : unsigned(4 downto 0)  := to_unsigned(12, 5);
@@ -204,7 +215,7 @@ begin
           d := (others => '0');
           case a is
             when 16#000#/4 => d := x"4C535043";
-            when 16#004#/4 => d := x"0001" & x"01" & x"02";
+            when 16#004#/4 => d := x"0002" & x"00" & x"02";
             when 16#008#/4 => d(0) := r_enable; d(8) := r_irq_en;
             when 16#00C#/4 =>
               d(1 downto 0) := std_logic_vector(st_nfull);
@@ -212,6 +223,7 @@ begin
               d(8)  := r_enable;
               d(9)  := st_running;
               d(10) := st_writing;
+              d(11) := st_fifo_err;
             when 16#010#/4 => d := std_logic_vector(resize(r_subband, 32));
             when 16#014#/4 => d := std_logic_vector(r_acc_len);
             when 16#01C#/4 => d := std_logic_vector(st_spec_cnt);
@@ -224,6 +236,7 @@ begin
             when 16#038#/4 => d := std_logic_vector(hd_acc_len);
             when 16#03C#/4 => d := std_logic_vector(hd_ts(31 downto 0));
             when 16#040#/4 => d := std_logic_vector(hd_ts(63 downto 32));
+            when 16#044#/4 => d := PFB_CFG;
             when others    => null;
           end case;
           rdata_i  <= d;

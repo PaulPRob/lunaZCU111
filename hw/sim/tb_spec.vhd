@@ -1,12 +1,19 @@
 -------------------------------------------------------------------------------
--- tb_spec : spectrometer_top with the real CSIRO PFB/DFB cores
+-- tb_spec : spectrometer_top with the oversampled coarse filter bank (ospfb)
+--           and the real CSIRO DFB core
 --
--- ADC channel TONE_CH carries two real tones (sample rate fs, fine channel
--- df = fs/32/4096 = 30 kHz at fs = 3932.16 MS/s):
+-- ADC channel TONE_CH carries four real tones (sample rate fs, fine channel
+-- df = fs/27/4096 = 35.556 kHz at fs = 3932.16 MS/s):
 --   A: subband 12 centre + 25 df   -> expect fine channel 25 of subband 12
 --   B: subband 12 centre - 100 df  -> expect fine channel 4096-100 = 3996
+--   E: subband 12 centre + 1828 df (+65.0 MHz, outside the old critically
+--      sampled band)               -> expect fine channel 1828
+--   D: subband 12 centre + 2531 df (+90.0 MHz, beyond the coarse output
+--      Nyquist +-72.8 MHz)          -> aliases to -55.6 MHz = fine channel
+--      2531, must be suppressed by the prototype filter (< -60 dB)
 -- Another channel (DECOY_CH) carries a decoy tone C at subband 12 centre
 -- + 300 df (600 codes) that must NOT appear; INPUT selects TONE_CH.
+-- clk_1x and clk_spec are asynchronous with the exact 27:16 period ratio.
 -- spec_writes.txt / spec_events.txt are checked by check_spec.py.
 --
 -- TEST_MODE 0 (data): ACC_LEN = 1 (2 spectra), SUBBAND 12, ENABLE; two
@@ -35,14 +42,20 @@ end entity tb_spec;
 
 architecture sim of tb_spec is
 
-  constant T1   : time := 4070 ps;           -- clk_1x (245.76 MHz nominal)
+  constant T1   : time := 4064 ps;           -- clk_1x (245.76 MHz nominal)
+  constant T_SPEC : time := 6858 ps;         -- clk_spec = T1 * 27/16 exactly
   constant NFFT : integer := 4096;
-  constant NTOT : integer := 32 * NFFT;      -- fine channels across 0..fs
-  constant PA   : integer := 12 * NFFT + 25;
-  constant PB   : integer := 12 * NFFT - 100;
+  constant NTOT : integer := 27 * NFFT;      -- fine channels across 0..fs
+  constant CTR  : integer := 12 * NTOT / 32; -- subband 12 centre (fine channels)
+  constant PA   : integer := CTR + 25;
+  constant PB   : integer := CTR - 100;
+  constant PE   : integer := CTR + 1828;
+  constant PD   : integer := CTR + 2531;
   constant AMPA : real := 600.0;              -- 12-bit ADC codes
   constant AMPB : real := 150.0;
-  constant PC   : integer := 12 * NFFT + 300;  -- decoy on another channel
+  constant AMPE : real := 100.0;
+  constant AMPD : real := 600.0;
+  constant PC   : integer := CTR + 300;       -- decoy on another channel
   constant DECOY_CH : integer := (TONE_CH + 3) mod 8;
 
   signal clk_1x, clk_spec : std_logic := '0';
@@ -61,7 +74,7 @@ architecture sim of tb_spec is
 
 begin
 
-  -- phase-aligned 2:1 clocks (both edges scheduled by 'wait', same delta)
+  -- independent clocks, average rates exactly 16 : 27 words
   process
   begin
     clk_1x <= '0';
@@ -77,12 +90,12 @@ begin
   process
   begin
     clk_spec <= '0';
-    wait for T1 / 2;
+    wait for 1234 ps;
     loop
       clk_spec <= '1';
-      wait for T1;
+      wait for T_SPEC / 2;
       clk_spec <= '0';
-      wait for T1;
+      wait for T_SPEC / 2;
     end loop;
   end process;
 
@@ -98,6 +111,8 @@ begin
     variable pha : integer := 0;               -- phase of tone A, in 1/NTOT turns
     variable phb : integer := 0;
     variable phc : integer := 0;
+    variable phd : integer := 0;
+    variable phe : integer := 0;
     variable xc  : real;
     variable x   : real;
     variable c   : integer;
@@ -105,11 +120,15 @@ begin
     if rising_edge(clk_1x) then
       for l in 0 to 15 loop
         x := AMPA * cos(MATH_2_PI * real(pha) / real(NTOT)) +
-             AMPB * cos(MATH_2_PI * real(phb) / real(NTOT));
+             AMPB * cos(MATH_2_PI * real(phb) / real(NTOT)) +
+             AMPE * cos(MATH_2_PI * real(phe) / real(NTOT)) +
+             AMPD * cos(MATH_2_PI * real(phd) / real(NTOT));
         xc := AMPA * cos(MATH_2_PI * real(phc) / real(NTOT));
         pha := (pha + PA) mod NTOT;
         phb := (phb + PB) mod NTOT;
         phc := (phc + PC) mod NTOT;
+        phd := (phd + PD) mod NTOT;
+        phe := (phe + PE) mod NTOT;
         c := integer(round(x));
         din(256*TONE_CH+16*l+15 downto 256*TONE_CH+16*l) <=
           std_logic_vector(to_signed(c * 16, 16));
@@ -238,6 +257,9 @@ begin
     assert d = x"4C535043" report "TB FAIL: bad ID" severity failure;
     rd(16#004#, d);
     report "TB version " & integer'image(to_integer(unsigned(d)));
+    assert d(31 downto 16) = x"0002" report "TB FAIL: version major /= 2" severity failure;
+    rd(16#044#, d);
+    assert d = x"00101B20" report "TB FAIL: PFB_CFG /= M 32, D 27, T 16" severity failure;
 
     wr(16#010#, 12);
     wr(16#02C#, TONE_CH);

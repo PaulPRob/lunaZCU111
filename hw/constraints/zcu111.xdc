@@ -22,7 +22,9 @@ set_property DIFF_TERM_ADV TERM_100 [get_ports {pl_sysref_p pl_sysref_n}]
 # SYNCed dividers). It is sampled on the falling edge of clk_1x.  The MMCM
 # uses phase alignment (BUFG feedback, USE_PHASE_ALIGNMENT in build_bd.tcl)
 # so clk_1x at the flops is aligned to the reference at the pin and the
-# sampling point is ~2 ns away from any SYSREF transition.
+# sampling point is ~2 ns away from any SYSREF transition.  Since clk_spec
+# moved to the fractional CLKOUT0 (VCO 983.04 MHz) clk_2x/clk_1x carry a
+# 0.763 ns phase shift (build_bd.tcl) to keep this capture centred.
 set refclk [get_clocks -of_objects [get_ports fpga_refclk_clk_p]]
 set_input_delay -clock $refclk -max  0.6 [get_ports pl_sysref_p]
 set_input_delay -clock $refclk -min -0.6 [get_ports pl_sysref_p]

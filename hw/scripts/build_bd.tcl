@@ -8,15 +8,15 @@
 #       -> trigger_capture regs     0xA010_0000  (clk_1x 245.76 MHz)
 #       -> AXI DMA (S2MM) regs      0xA011_0000  (pl_clk0)
 #       -> AXI GPIO (MMCM ctrl)     0xA012_0000  (pl_clk0)
-#       -> spectrometer regs + mem  0xA014_0000  (clk_spec 122.88 MHz, 128 KiB)
+#       -> spectrometer regs + mem  0xA014_0000  (clk_spec 145.636 MHz, 128 KiB)
 #   RFDC 8 x ADC 3932.16 MSPS (4 dual tiles, PLL from 245.76 MHz, MTS)
 #       m00/m02/m10/m12/m20/m22/m30/m32 (491.52 MHz) -> trigger_capture s00..s07
 #   DAC tile 228 channel 0 enabled only so the Gen1 SYSREF master is powered
 #   trigger_capture m_axis -> AXI DMA S2MM -> S_AXI_HP0 -> DDR
-#   FPGA_REFCLK_OUT 122.88 MHz -> MMCM -> clk_2x 491.52 / clk_1x 245.76 /
-#                                          clk_spec 122.88 MHz
+#   FPGA_REFCLK_OUT 122.88 MHz -> MMCM (VCO 983.04 MHz) -> clk_2x 491.52 /
+#                       clk_1x 245.76 / clk_spec 145.636 MHz (= fs/27, /6.75)
 #   trigger_capture spec_words (8 ADCs) -> spectrometer input select (INPUT reg)
-#                                          -> PFB 16 ch -> DFB 4096 ch
+#                       -> 32/27 oversampled PFB (one subband) -> DFB 4096 ch
 #   PL SYSREF 7.68 MHz -> pl_sysref_sync -> RFDC user_sysref_adc
 # -----------------------------------------------------------------------------
 
@@ -40,28 +40,50 @@ set_property -dict [list \
 ] $ps
 
 # ------------------------------------------------------------- clocks --------
+# clk_spec = fs/27 = 145.636 MHz needs the fractional divider, which only
+# CLKOUT0 (clk_wiz output 1) has: 983.04 / 6.75.  It is asynchronous to the
+# other two as far as the design is concerned (XPM FIFO / CDC crossings).
+# With the VCO at 983.04 MHz the MMCM's phase-aligned outputs arrive ~0.8 ns
+# earlier than with the 1228.8 MHz VCO of earlier builds, which left the PL
+# SYSREF capture (falling edge of clk_1x, zcu111.xdc) at -0.46 ns setup /
+# +1.96 ns hold.  clk_2x and clk_1x are therefore both delayed by 0.763 ns
+# (6 VCO phase steps: 135 deg and 67.5 deg), keeping their mutual phase.
 set cw [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz]
 set_property -dict [list \
     CONFIG.PRIM_SOURCE Differential_clock_capable_pin \
     CONFIG.PRIM_IN_FREQ 122.880 \
     CONFIG.USE_PHASE_ALIGNMENT true \
-    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 491.520 \
+    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 145.636 \
+    CONFIG.CLK_OUT1_PORT clk_spec \
     CONFIG.CLKOUT2_USED true \
-    CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 245.760 \
-    CONFIG.CLK_OUT1_PORT clk_2x \
-    CONFIG.CLK_OUT2_PORT clk_1x \
+    CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 491.520 \
+    CONFIG.CLKOUT2_REQUESTED_PHASE 135.000 \
+    CONFIG.CLK_OUT2_PORT clk_2x \
     CONFIG.CLKOUT3_USED true \
-    CONFIG.CLKOUT3_REQUESTED_OUT_FREQ 122.880 \
-    CONFIG.CLK_OUT3_PORT clk_spec \
+    CONFIG.CLKOUT3_REQUESTED_OUT_FREQ 245.760 \
+    CONFIG.CLKOUT3_REQUESTED_PHASE 67.500 \
+    CONFIG.CLK_OUT3_PORT clk_1x \
     CONFIG.USE_RESET true \
     CONFIG.RESET_TYPE ACTIVE_HIGH \
     CONFIG.USE_LOCKED true \
+    CONFIG.OVERRIDE_MMCM true \
     CONFIG.MMCM_CLKFBOUT_MULT_F 8.000 \
     CONFIG.MMCM_DIVCLK_DIVIDE 1 \
-    CONFIG.MMCM_CLKOUT0_DIVIDE_F 2.000 \
-    CONFIG.MMCM_CLKOUT1_DIVIDE 4 \
-    CONFIG.MMCM_CLKOUT2_DIVIDE 8 \
+    CONFIG.MMCM_CLKOUT0_DIVIDE_F 6.750 \
+    CONFIG.MMCM_CLKOUT1_DIVIDE 2 \
+    CONFIG.MMCM_CLKOUT1_PHASE 135.000 \
+    CONFIG.MMCM_CLKOUT2_DIVIDE 4 \
+    CONFIG.MMCM_CLKOUT2_PHASE 67.500 \
 ] $cw
+# the wizard's own solver would pick a different VCO (clk_2x 492.02 MHz):
+# insist on the exact frequencies
+foreach {pin hz} {clk_spec 145635555 clk_2x 491520000 clk_1x 245760000} {
+    set f [get_property CONFIG.FREQ_HZ [get_bd_pins $cw/$pin]]
+    if {abs($f - $hz) > 1000} {
+        puts "BUILD ERROR: clk_wiz $pin = $f Hz, expected $hz Hz"
+        exit 4
+    }
+}
 create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 fpga_refclk
 set_property CONFIG.FREQ_HZ 122880000 [get_bd_intf_ports fpga_refclk]
 connect_bd_intf_net [get_bd_intf_ports fpga_refclk] [get_bd_intf_pins $cw/CLK_IN1_D]
@@ -161,8 +183,9 @@ foreach m {m00 m02 m10 m12 m20 m22 m30 m32} {
 }
 
 # ---------------------------------------------------------- spectrometer ----
-# ADC channel 0 (after the trigger core's gearbox) -> PFB/DFB integrating
-# spectrometer; the CSIRO cores are created by spec_ip.tcl (from build.tcl)
+# one of the 8 ADC channels (after the trigger core's gearbox) -> oversampled
+# PFB / DFB integrating spectrometer; the CSIRO DFB core is created by
+# spec_ip.tcl (from build.tcl)
 set sp [create_bd_cell -type module -reference spectrometer_top spectrometer]
 connect_bd_net [get_bd_pins $cw/clk_1x] [get_bd_pins $sp/clk_1x]
 connect_bd_net [get_bd_pins $cw/clk_spec] [get_bd_pins $sp/clk_spec]

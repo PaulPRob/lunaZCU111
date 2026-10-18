@@ -1,12 +1,13 @@
 # -----------------------------------------------------------------------------
-# sim_spec.tcl : behavioural simulation of spectrometer_top with the real
-#                CSIRO PFB/DFB cores (needs refernces/PFB, see spec_ip.tcl)
+# sim_spec.tcl : behavioural simulation of spectrometer_top with the
+#                oversampled coarse filter bank (ospfb) and the real CSIRO
+#                DFB core (needs refernces/PFB, see spec_ip.tcl)
 #
 #   hw/sim/run_sim.sh spec          (runs both tests, then check_spec.py)
 #
-#   SPEC_TEST=data    : full chain, tones on ADC 5 (INPUT = 5) through PFB + DFB,
-#                       decoy tone on ADC 0                        (default)
-#   SPEC_TEST=restart : restart / shortening test, PFB model replaced by zeros
+#   SPEC_TEST=data    : full chain, tones on ADC 5 (INPUT = 5) through ospfb +
+#                       DFB, decoy tone on ADC 0, an alias test tone (default)
+#   SPEC_TEST=restart : restart / shortening test, ospfb replaced by zeros
 # -----------------------------------------------------------------------------
 set here [file dirname [file normalize [info script]]]
 set hw   [file normalize $here/..]
@@ -20,7 +21,7 @@ set_property simulator_language Mixed [current_project]
 
 source $hw/scripts/spec_ip.tcl
 
-foreach f {luna_pkg capture_mem spec_regs_axil spectrometer_top} {
+foreach f {luna_pkg ospfb_pkg ospfb gearbox_16_27 capture_mem spec_regs_axil spectrometer_top} {
     add_files $hw/hdl/$f.vhd
 }
 add_files -fileset sim_1 $here/tb_spec.vhd

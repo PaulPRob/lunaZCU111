@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Run the VHDL unit simulations (Vivado xsim) and compare against the golden
-# models.  Usage:  hw/sim/run_sim.sh [trig|cap|all|spec|full]   (all = trig+cap)
-#   spec : spectrometer with the CSIRO PFB/DFB cores (needs refernces/PFB,
-#          runs Vivado in project mode, several hours: the PFB model is slow);  full = all + spec
+# models.  Usage:  hw/sim/run_sim.sh [trig|cap|os|all|spec|full]   (all = trig+cap+os)
+#   os   : oversampled coarse filter bank (ospfb) against its bit-exact model,
+#          subbands 0, 1, 7, 12, 15, 16 (about a minute)
+#   spec : spectrometer: ospfb + the CSIRO DFB core (needs refernces/PFB,
+#          runs Vivado in project mode; the DFB model is slow);  full = all + spec
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HDL="$HERE/../hdl"
@@ -55,6 +57,17 @@ if [[ "$WHAT" == cap || "$WHAT" == all || "$WHAT" == full ]]; then
   run xelab -relax -debug off tb_capture -s tb_capture
   xsim tb_capture -R | grep -E "^(Note|Error|Failure)|TB" || true
   python3 "$HERE/check_capture.py" cap_stream.txt cap_log.txt || fail=1
+fi
+
+if [[ "$WHAT" == os || "$WHAT" == all || "$WHAT" == full ]]; then
+  run xvhdl --relax "$HDL/ospfb_pkg.vhd" "$HDL/ospfb.vhd" "$HERE/tb_ospfb.vhd"
+  for k in 0 1 7 12 15 16; do
+    python3 "$HERE/ospfb_model.py" gen $((k + 10)) ospfb_stim.txt $k
+    run xelab -relax -O3 -debug off -generic_top K=$k tb_ospfb -s tb_ospfb_$k
+    xsim tb_ospfb_$k -R >/dev/null
+    python3 "$HERE/ospfb_model.py" cmp $k ospfb_stim.txt ospfb_out.txt || fail=1
+  done
+  python3 "$HERE/ospfb_model.py" selftest | tail -1 | grep -q PASSED || { echo "ospfb model selftest FAILED"; fail=1; }
 fi
 
 if [[ "$WHAT" == spec || "$WHAT" == full ]]; then

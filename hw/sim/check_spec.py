@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check spec_writes.txt from tb_spec (spectrometer_top + CSIRO PFB/DFB).
+"""Check spec_writes.txt from tb_spec (spectrometer_top: ospfb + CSIRO DFB).
 
 usage: check_spec.py [--mode data|restart] spec_writes.txt [spec_events.txt]
 
@@ -8,12 +8,17 @@ Every stored integration must have all 4096 channels written exactly once.
 data    (tb_spec TEST_MODE 0, TONE_CH 5): two integrations with ACC_LEN = 1
         and INPUT = 5, the first flagged "first after restart"; tones in
         subband 12: tone A (600 codes) in fine channel 25, tone B (150 codes)
-        in fine channel 4096-100 = 3996, so power(A)/power(B) ~ 16; the decoy
-        tone on another ADC (fine channel 300) must be absent.
+        in fine channel 4096-100 = 3996, so power(A)/power(B) ~ 16; tone E
+        (100 codes, +65.0 MHz, beyond the old critically sampled band) in
+        fine channel 1828 at the prototype filter's gain there; tone D
+        (600 codes, +90.0 MHz) aliases to fine channel 2531 (-55.6 MHz) and
+        must be < -60 dB; the decoy tone on another ADC (fine channel 300)
+        must be absent.
 restart (TEST_MODE 1, no PFB, data all zero): after shortening ACC_LEN from
         7 to 0, two integrations with ACC_LEN = 0, the first flagged.
 """
 import argparse
+import json
 import os
 import sys
 
@@ -21,8 +26,24 @@ import numpy as np
 
 NCHAN = 4096
 BIN_A, BIN_B = 25, NCHAN - 100
+BIN_E, BIN_D = 1828, 2531
+AMP_A, AMP_E = 600.0, 100.0
 BIN_DECOY = 300
 DATA_INPUT = 5
+
+
+def filter_gain_db(f_hz):
+    """Response of the ospfb prototype filter at f_hz from the channel centre."""
+    p = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "ospfb_coefs.json")))
+    c = np.array(p["coef"], dtype=float)
+    n = np.arange(len(c))
+    h = np.sum(c * np.exp(-2j * np.pi * f_hz / p["fs"] * n)) / c.sum()
+    return 20 * np.log10(abs(h))
+
+
+FINE_HZ = 3.93216e9 / 27 / NCHAN
+E_EXPECT = (AMP_E / AMP_A) ** 2 * 10 ** (filter_gain_db(BIN_E * FINE_HZ) / 10)
 
 
 def load(path):
@@ -69,17 +90,27 @@ def main():
             continue
         order = np.argsort(p)[::-1]
         ratio = p[BIN_A] / max(p[BIN_B], 1)
+        e_rel = p[BIN_E] / max(p[BIN_A], 1)
+        d_db = 10 * np.log10(max(p[BIN_D], 1e-30) / max(p[BIN_A], 1))
         print(f"{tag}  top {order[:4].tolist()}  P[25]={p[BIN_A]:.3e} P[3996]={p[BIN_B]:.3e} "
               f"A/B={ratio:.2f} P[25]/spectrum={p[BIN_A] / (s['acc_len'] + 1):.3e} "
               f"median={np.median(p):.3e}")
+        print(f"    E (+65 MHz) P[1828]/P[25] = {e_rel:.4f} (expect {E_EXPECT:.4f}), "
+              f"D alias (+90 -> -55.6 MHz) P[2531]/P[25] = {d_db:.1f} dB")
         if not p.any():
             print("  FAIL: empty integration stored")
             ok = False
-        elif order[0] != BIN_A or order[1] != BIN_B:
-            print("  FAIL: tones not in fine channels 25 and 3996")
+        elif order[0] != BIN_A or order[1] != BIN_B or order[2] != BIN_E:
+            print("  FAIL: tones not in fine channels 25, 3996 and 1828")
             ok = False
         elif not 8 < ratio < 32:
             print("  FAIL: tone power ratio far from 16")
+            ok = False
+        elif not 0.8 < e_rel / E_EXPECT < 1.25:
+            print("  FAIL: tone E (+65 MHz) not at the expected level")
+            ok = False
+        elif d_db > -60:
+            print("  FAIL: aliased tone D above -60 dB")
             ok = False
         elif p[BIN_DECOY] > 1e-4 * p[BIN_A]:
             print(f"  FAIL: decoy tone from another ADC present (P[300]={p[BIN_DECOY]:.3e})")
