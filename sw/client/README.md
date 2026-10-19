@@ -81,7 +81,7 @@ uv run lunaGUI --font-size 10      # default: 2 pt below the desktop font (or LU
 - After a mouse zoom or pan, that axis stops following the data until you press **Reset zoom**.
 
 **Spectrum window**
-- The latest integration as mean power per 28.125 µs spectrum against absolute frequency (subband centre ± 72.8 MHz: the coarse filter bank is oversampled 32/27), in dB or linear, with its ADC, subband, integration time and peak. Dashed lines mark the subband's own band (± 61.44 MHz); outside it the channels overlap the neighbouring subbands. The peak readout is taken inside the band.
+- The latest integration as mean power per 28.125 µs spectrum against absolute frequency (subband centre ± 72.8 MHz: the coarse filter bank is oversampled 32/27), in dB or linear, with its ADC, subband, integration time and peak. Dashed lines mark the subband's own band (± 61.44 MHz). The 320 guard channels on each side are hidden by default: they lie in the coarse filter's transition band (−0.5 dB at ± 61.44 MHz, −11 dB at ± 72.8 MHz) and also hold signal from 145.64 MHz away, i.e. from beyond the other end of the subband, wrapped round, so they are not a true spectrum. *Guard channels* shows them, greyed and shaded. The peak readout is taken inside the band.
 - Running average over N integrations, max hold, and a waterfall of the most recent integrations. The waterfall keeps the maximum of each group of 4 fine channels, so narrow lines stay visible.
 - The average, max hold and waterfall restart automatically when the input, subband or integration length changes. *Skip 'first after restart'* ignores the first integration after a change.
 

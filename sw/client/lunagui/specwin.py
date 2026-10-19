@@ -9,8 +9,11 @@ length changes.
 
 The coarse filter bank is oversampled 32/27, so the 4096 fine channels span
 145.64 MHz while the subband's own band is the central 122.88 MHz (+-61.44
-MHz, dashed lines); the channels outside it overlap the neighbouring
-subbands.  The peak readout is taken inside the band.
+MHz, dashed lines).  The 320 guard channels on each side lie in the
+prototype filter's transition band and also hold signal from 145.64 MHz
+away (the other side of the subband, wrapped round), so they are hidden by
+default; 'Guard channels' shows them greyed.  The peak readout is taken
+inside the band.
 """
 from __future__ import annotations
 
@@ -36,9 +39,9 @@ class SpecWindow(QMainWindow):
         self.setWindowTitle("lunaGUI – spectrometer")
         self.qs = settings
         self.resize(1400, 900)
-        self._key = None                      # (input, subband, n_spectra)
+        self._key = None                      # (input, subband, n_spectra, decim)
         self._freq_mhz = None
-        self._in_band = None
+        self._band = (0, 0)                   # in-band channels [b0, b1), frequency order
         self._sum = None
         self._navg = 0
         self._hist: list[np.ndarray] = []     # recent mean spectra (for averaging)
@@ -65,6 +68,9 @@ class SpecWindow(QMainWindow):
         self.plot.setLabel("bottom", "frequency", units="Hz")
         self.plot.disableAutoRange()
         self.plot.hideButtons()
+        # guard channels: grey curves (NaN over the band), drawn under the band's
+        self.guardcurve = self.plot.plot(pen=pg.mkPen((120, 120, 120), width=1), connect="finite")
+        self.maxguard = self.plot.plot(pen=pg.mkPen((130, 95, 60), width=1), connect="finite")
         self.curve = self.plot.plot(pen=pg.mkPen((60, 140, 230), width=1))
         self.maxcurve = self.plot.plot(pen=pg.mkPen((220, 120, 40), width=1))
         # edges of the subband's own band (centre +- 61.44 MHz)
@@ -84,6 +90,15 @@ class SpecWindow(QMainWindow):
         self.wfimg = pg.ImageItem(axisOrder="row-major")
         self.wfimg.setColorMap(pg.colormap.get("viridis"))
         self.wfplot.addItem(self.wfimg)
+        # shading over the guard channels (spectrum: light, waterfall: dimmed)
+        self.shade = []
+        for plot, brush in ((self.plot, (128, 128, 128, 40)), (self.wfplot, (0, 0, 0, 120))):
+            for _ in range(2):
+                r = pg.LinearRegionItem(movable=False, brush=pg.mkBrush(brush),
+                                        pen=pg.mkPen(None))
+                r.setZValue(10 if plot is self.wfplot else -10)
+                plot.addItem(r)
+                self.shade.append(r)
         self.glw.ci.layout.setRowStretchFactor(0, 3)
         self.glw.ci.layout.setRowStretchFactor(1, 2)
 
@@ -127,6 +142,13 @@ class SpecWindow(QMainWindow):
                                    "but may be the first of a new setting)")
         self.skip_first.setChecked(q.value("spec/skip_first", "false") == "true")
         self.skip_first.toggled.connect(self._apply_settings)
+        self.guard = add("", QCheckBox("Guard channels"))
+        self.guard.setToolTip("Show (greyed) the channels outside the subband's own ±61.44 MHz band.\n"
+                              "They lie in the coarse filter's transition band and also hold\n"
+                              "signal from 145.64 MHz away (the other side of the subband,\n"
+                              "wrapped round), so they are not a true spectrum.")
+        self.guard.setChecked(q.value("spec/guard", "false") == "true")
+        self.guard.toggled.connect(self._apply_settings)
         tb.addSeparator()
         self.wf_rows = add("Waterfall", QSpinBox())
         self.wf_rows.setRange(0, 2000)
@@ -150,14 +172,18 @@ class SpecWindow(QMainWindow):
         q.setValue("spec/maxhold", "true" if self.maxhold.isChecked() else "false")
         q.setValue("spec/skip_first", "true" if self.skip_first.isChecked() else "false")
         q.setValue("spec/wf_rows", self.wf_rows.value())
+        q.setValue("spec/guard", "true" if self.guard.isChecked() else "false")
         db = self.units.currentText() == "dB"
         self.plot.setLabel("left", "power per spectrum" + (" (dB)" if db else ""))
         self.maxcurve.setVisible(self.maxhold.isChecked())
+        self.maxguard.setVisible(self.maxhold.isChecked())
         self.wfplot.setVisible(self.wf_rows.value() > 0)
         if len(self._hist) > self.avg.value():
             self._hist = self._hist[-self.avg.value():]
         if self.sender() is self.units:
             self._user_y = False
+        if self.sender() is self.guard:
+            self._user_x = self._user_y = False
         self._dirty = True
 
     def _user_zoom(self, mask):
@@ -185,14 +211,15 @@ class SpecWindow(QMainWindow):
     def on_spectrum(self, s: Spectrum):
         if self.skip_first.isChecked() and s.first:
             return
-        key = (s.adc_input, s.subband, s.n_spectra)
+        key = (s.adc_input, s.subband, s.n_spectra, s.decim)
         if key != self._key:                 # new setting: start again
             self._key = key
             self._clear()
             self._user_x = False
         f, p = s.ordered()                   # Hz, mean power per spectrum
         self._freq_mhz = f / 1e6
-        self._in_band = np.fft.fftshift(s.in_band())
+        idx = np.flatnonzero(np.fft.fftshift(s.in_band()))    # contiguous
+        self._band = (int(idx[0]), int(idx[-1]) + 1)
         self._hist.append(p)
         if len(self._hist) > self.avg.value():
             del self._hist[0]
@@ -219,15 +246,28 @@ class SpecWindow(QMainWindow):
         def conv(x):
             return 10 * np.log10(np.maximum(x, 1e-3)) if db else x
 
+        b0, b1 = self._band
+        guard = self.guard.isChecked() and (b1 - b0) < len(f_hz)
+        vis = slice(None) if guard else slice(b0, b1)   # channels shown
+
+        def show(curve, gcurve, v):
+            curve.setData(f_hz[b0:b1], v[b0:b1])
+            if guard:                        # guard part, joined to the band's ends
+                g = v.copy()
+                g[b0 + 1:b1 - 1] = np.nan
+                gcurve.setData(f_hz, g)
+            else:
+                gcurve.setData([], [])
+
         y = conv(mean)
-        self.curve.setData(f_hz, y)
-        ys = [y]
+        show(self.curve, self.guardcurve, y)
+        ys = [y[vis]]
         if self.maxhold.isChecked() and self._max is not None:
             ym = conv(self._max)
-            self.maxcurve.setData(f_hz, ym)
-            ys.append(ym)
+            show(self.maxcurve, self.maxguard, ym)
+            ys.append(ym[vis])
         if not self._user_x:
-            set_range(self.plot, 0, f_hz[0], f_hz[-1], pad=0, sticky=False)
+            set_range(self.plot, 0, f_hz[vis][0], f_hz[vis][-1], pad=0, sticky=False)
         if not self._user_y:
             lo = min(float(np.min(v)) for v in ys)
             hi = max(float(np.max(v)) for v in ys)
@@ -235,18 +275,27 @@ class SpecWindow(QMainWindow):
                 set_range(self.plot, 1, lo - 3, hi + 3)
             else:
                 set_range(self.plot, 1, 0, hi)
+        df = f_hz[1] - f_hz[0]
         if self._wf:
+            # column c holds channels WF_DECIM*c ...; colour levels from the band only
+            n = self.WF_DECIM
             img = np.array(self._wf[::-1])   # newest at the top (row 0)
-            self.wfimg.setImage(img, autoLevels=False,
-                                levels=(float(np.percentile(img, 1)), float(img.max())))
-            df = f_hz[1] - f_hz[0]
-            self.wfimg.setRect(f_hz[0] - df / 2, 0, f_hz[-1] - f_hz[0] + df, img.shape[0])
+            band = img[:, b0 // n:-(-b1 // n)]
+            c0, c1 = (0, img.shape[1]) if guard else (b0 // n, -(-b1 // n))
+            self.wfimg.setImage(img[:, c0:c1], autoLevels=False,
+                                levels=(float(np.percentile(band, 1)), float(band.max())))
+            self.wfimg.setRect(f_hz[n * c0] - df / 2, 0, (c1 - c0) * n * df, img.shape[0])
             self.wfplot.setYRange(0, img.shape[0], padding=0)
             self.wfplot.vb.invertY(True)
-        for e, ln in zip((-1, 1), self.edges):
-            ln.setValue(s.centre_hz + e * s.band_hz / 2)
-        idx = np.flatnonzero(self._in_band)
-        k = int(idx[np.argmax(mean[idx])])
+        lo_edge, hi_edge = s.centre_hz - s.band_hz / 2, s.centre_hz + s.band_hz / 2
+        for ln, e in zip(self.edges, (lo_edge, hi_edge)):
+            ln.setValue(e)
+        for i, r in enumerate(self.shade):
+            r.setVisible(guard)
+            if guard:
+                r.setRegion((f_hz[0] - df / 2, lo_edge) if i % 2 == 0
+                            else (hi_edge, f_hz[-1] + df / 2))
+        k = b0 + int(np.argmax(mean[b0:b1]))
         ts = time.strftime("%H:%M:%S", time.localtime(s.host_time_ns / 1e9))
         self.info.setText(
             f"<b>ADC {s.adc_input}</b> &nbsp; subband <b>{s.subband}</b> "
